@@ -1,0 +1,32 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Validate launcher syntax
+        run: bash -n goose-sandbox
+
+      - name: Check executable bit
+        run: test -x goose-sandbox
+
+      - name: Install ShellCheck
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y shellcheck
+
+      - name: ShellCheck
+        run: shellcheck goose-sandbox
+
+      - name: Build image
+        run: docker build -t goose-agent:ci .
