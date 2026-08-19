@@ -165,7 +165,7 @@ DOCKER_ARGS=(
     --env-file "$ENV_FILE"
     --mount "type=bind,src=$WORKSPACE,dst=/workspace"
     --mount "type=bind,src=$STATE_DIR,dst=/goose-state"
-    --tmpfs /workspace/.goose-sandbox:rw,noexec,nosuid,nodev,size=1m
+    "--tmpfs=/workspace/.goose-sandbox:rw,noexec,nosuid,nodev,size=1m"
     --workdir /workspace
 )
 
