@@ -1,0 +1,8 @@
+.git
+.github
+.gitignore
+.goose-sandbox
+.env
+*.log
+.venv
+node_modules
