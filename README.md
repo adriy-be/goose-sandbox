@@ -1,189 +1,142 @@
 # 🪿 Goose Sandbox
 
-Run **Goose inside Docker** with access only to the project you choose.
-
-The goal:
+Run **Goose inside Docker** with access limited to the project you choose.
 
 ```text
 Your PC
 │
-├── other-projects/      ❌
-├── ~/.ssh/              ❌
-├── ~/.config/           ❌
+├── other-projects/      ❌ not mounted
+├── ~/.ssh/              ❌ not mounted
+├── ~/.config/           ❌ not mounted
 │
-└── current-project/     ✅
+└── current-project/     ✅ mounted as /workspace
         │
-        ▼
-   Docker container
-        │
-        └── /workspace
-             ├── project files
-             └── .goose-sandbox/
-                  └── Goose history + state
+        └── .goose-sandbox/  → mounted separately as /goose-state
 ```
 
-Goose can work on your project without getting access to the rest of your machine.
+Normal workflow:
+
+```bash
+cd my-project
+goose-sandbox
+```
 
 ---
 
-# 🚀 Quick start
+## 🚀 Quick start
 
-## 1. Build the image
-
-From this repository:
+### 1. Build
 
 ```bash
 docker build -t goose-agent .
 ```
 
----
+The image pins:
 
-## 2. Create the config
+- Goose `v1.36.0`
+- uv `0.12.1`
+
+Rebuilding does not silently move to a newer Goose release.
+
+### 2. Configure
 
 ```bash
 mkdir -p ~/.config/goose-sandbox
 cp sample.env ~/.config/goose-sandbox/.env
-```
-
-Edit it:
-
-```bash
-nano ~/.config/goose-sandbox/.env
-```
-
-Add your DeepInfra API key:
-
-```env
-GOOSE_PROVIDER=openai
-OPENAI_HOST=https://api.deepinfra.com
-OPENAI_API_KEY=YOUR_API_KEY
-
-GOOSE_MODEL=deepseek-ai/DeepSeek-V3
-
-GOOSE_MODE=approve
-```
-
-Protect the file:
-
-```bash
 chmod 600 ~/.config/goose-sandbox/.env
 ```
 
----
+Edit the file and add your API key.
 
-## 3. Install the launcher
+### 3. Install launcher
 
 ```bash
 mkdir -p ~/.local/bin
-
 install -m 755 goose-sandbox ~/.local/bin/goose-sandbox
 ```
 
-Make sure `~/.local/bin` is in your `PATH`:
+Make sure `~/.local/bin` is in your `PATH`.
+
+### 4. Check setup
 
 ```bash
-export PATH="$HOME/.local/bin:$PATH"
+goose-sandbox doctor
 ```
 
-Add this line to `~/.bashrc` or `~/.zshrc` if needed.
-
----
-
-# 🧑‍💻 Usage
-
-Go inside any project:
+Then, from any project:
 
 ```bash
 cd ~/projects/my-project
-```
-
-Launch Goose:
-
-```bash
 goose-sandbox
 ```
 
-That's it.
-
-The current directory becomes:
-
-```text
-/workspace
-```
-
-inside Docker.
-
 ---
 
-# 💬 Example
+## 🩺 Doctor
 
-```text
-> Analyze this project and explain the architecture.
+```bash
+goose-sandbox doctor
 ```
 
-```text
-> Run the tests and find what is broken.
-```
+Checks:
 
-```text
-> Implement the feature described in issue.md.
-```
-
-```text
-> Refactor this module without changing its behavior.
-```
-
----
-
-# 🧠 Chat history
-
-Goose keeps its project-specific state inside:
-
-```text
-.goose-sandbox/
-```
-
-because the Docker image defines:
-
-```dockerfile
-ENV GOOSE_PATH_ROOT=/workspace/.goose-sandbox
-```
-
-So even if the Docker container is deleted:
-
-```text
-container
-   ↓
-deleted ❌
-
-.goose-sandbox/
-   ↓
-kept ✅
-```
-
-Each project therefore gets its **own Goose history**.
+- ✅ Docker command
+- ✅ Docker daemon
+- ✅ provider `.env`
+- ✅ `.env` permissions
+- ✅ workspace
+- ✅ persistent Goose state
+- ⚠️ local image availability
 
 Example:
 
 ```text
-projects/
-├── project-a/
-│   └── .goose-sandbox/
-│
-├── project-b/
-│   └── .goose-sandbox/
-│
-└── project-c/
-    └── .goose-sandbox/
+✓ Docker installed
+✓ Docker daemon reachable
+✓ Environment file found
+✓ Environment file permissions: 600
+✓ Workspace writable
+✓ Goose state writable
+✓ Image found: goose-agent
+
+Ready.
 ```
 
 ---
 
-# ⚠️ Add this to `.gitignore`
+## 🧠 Persistent chat history
 
-You normally do **not** want Goose history committed to Git.
+On the host, each project keeps Goose state in:
 
-Add:
+```text
+.goose-sandbox/
+```
+
+Inside Docker that directory is mounted as:
+
+```text
+/goose-state
+```
+
+and Goose uses:
+
+```text
+GOOSE_PATH_ROOT=/goose-state
+```
+
+The same host directory is hidden from `/workspace` with a small tmpfs mount.
+
+Result:
+
+```text
+project source          /workspace        ✅
+Goose internal state    /goose-state      ✅ persistent
+state via project tree  /workspace/.goose-sandbox  ❌ hidden
+```
+
+This prevents normal project analysis from walking through Goose's own history/state while keeping that state project-specific.
+
+Add this to projects that use the launcher:
 
 ```gitignore
 .goose-sandbox/
@@ -191,241 +144,205 @@ Add:
 
 ---
 
-# 🔐 Isolation
+## 🔐 Security model
 
-Only the current project is mounted into the container.
-
-Goose does **not** automatically see:
+This is a **project-scoped Docker sandbox**, not a hardened VM.
 
 ```text
-~/.ssh
-~/.config
-~/Documents
-other projects
-/
+Host filesystem
+  current project        ✅ accessible
+  unrelated directories  ❌ not mounted
+
+Docker socket             ❌ not mounted
+
+Linux privileges
+  no-new-privileges       ✅
+  capabilities dropped    ✅
+  PID limit               ✅
+  memory limit            ✅
+  init process            ✅
+
+Network                    ⚠️ enabled by default
+LLM credentials            ⚠️ available inside container
+Project files              ✅ read/write by the agent
 ```
 
-The launcher also applies additional Docker restrictions:
+Do not run untrusted hostile code and assume Docker alone makes it harmless.
 
-```text
-no-new-privileges
-capabilities dropped
-PID limit
-memory limit
-```
+### Never mount the Docker socket
 
----
-
-# 🚨 Do NOT mount Docker socket
-
-Never add:
+Do **not** add:
 
 ```bash
 -v /var/run/docker.sock:/var/run/docker.sock
 ```
 
-That would allow the container to control Docker on the host and would largely defeat the purpose of the sandbox.
+That would let the container control the host Docker daemon and largely defeat the isolation model.
 
 ---
 
-# 🛡️ Goose execution modes
+## 🌐 Network isolation
 
-Configured with:
+Remote providers such as DeepInfra need network access, so normal Docker networking stays enabled by default.
 
-```env
-GOOSE_MODE=...
+For a local/offline provider:
+
+```bash
+GOOSE_SANDBOX_NETWORK=none goose-sandbox
 ```
 
-## `approve`
+This adds:
+
+```text
+--network=none
+```
+
+You can also select another existing Docker network:
+
+```bash
+GOOSE_SANDBOX_NETWORK=my-network goose-sandbox
+```
+
+---
+
+## ⚙️ Runtime limits
+
+Defaults:
+
+```text
+Memory: 8g
+PIDs:   512
+```
+
+Override them from the host shell:
+
+```bash
+GOOSE_SANDBOX_MEMORY=4g goose-sandbox
+GOOSE_SANDBOX_PIDS=256 goose-sandbox
+GOOSE_SANDBOX_CPUS=4 goose-sandbox
+```
+
+These are launcher settings, so they are intentionally separate from the provider credential `.env`.
+
+Available variables:
+
+```text
+GOOSE_SANDBOX_IMAGE
+GOOSE_SANDBOX_ENV_FILE
+GOOSE_SANDBOX_WORKSPACE
+GOOSE_SANDBOX_MEMORY
+GOOSE_SANDBOX_PIDS
+GOOSE_SANDBOX_CPUS
+GOOSE_SANDBOX_NETWORK
+```
+
+---
+
+## 🛡️ Goose execution modes
+
+Configure in `~/.config/goose-sandbox/.env`:
 
 ```env
 GOOSE_MODE=approve
 ```
 
-Goose asks before executing tools.
+Common modes:
 
-Recommended while testing the setup.
-
----
-
-## `auto`
-
-```env
-GOOSE_MODE=auto
+```text
+approve        asks before tool execution
+smart_approve  selective approval
+auto           automatic tool execution
+chat           no tools
 ```
 
-Goose can execute tools without asking.
-
-Useful once you trust the sandbox.
+Start with `approve`.
 
 ---
 
-## `chat`
-
-```env
-GOOSE_MODE=chat
-```
-
-Chat only.
-
-No tool execution.
-
----
-
-# 🌐 DeepInfra
-
-This setup uses DeepInfra through its OpenAI-compatible API.
-
-Example:
+## 🌐 DeepInfra example
 
 ```env
 GOOSE_PROVIDER=openai
+GOOSE_MODEL=deepseek-ai/DeepSeek-V3
 
 OPENAI_HOST=https://api.deepinfra.com
-OPENAI_API_KEY=YOUR_API_KEY
+OPENAI_API_KEY=YOUR_DEEPINFRA_API_KEY
+OPENAI_BASE_PATH=v1/openai/chat/completions
 
-GOOSE_MODEL=deepseek-ai/DeepSeek-V3
+GOOSE_MODE=approve
+GOOSE_TELEMETRY_ENABLED=false
 ```
 
-You can change the model without rebuilding the Docker image.
-
-Example:
-
-```env
-GOOSE_MODEL=Qwen/Qwen3-Coder-480B-A35B-Instruct-Turbo
-```
+Change the model without rebuilding the image.
 
 ---
 
-# 📁 Repository
+## 📁 Repository
 
 ```text
 .
+├── .dockerignore
+├── .github/
+│   └── workflows/
+│       └── ci.yml
+├── .gitignore
+├── AGENT.md
 ├── Dockerfile
+├── LICENSE
 ├── README.md
 ├── goose-sandbox
 └── sample.env
 ```
 
-### `Dockerfile`
+---
 
-Builds the isolated Goose development environment.
+## ✅ Validation
 
-### `goose-sandbox`
-
-Launcher available globally from:
+Launcher syntax:
 
 ```bash
-~/.local/bin/goose-sandbox
+bash -n goose-sandbox
 ```
 
-It mounts the **current directory** into `/workspace`.
+ShellCheck:
 
-### `sample.env`
-
-Example provider and Goose configuration.
-
-Copy it to:
-
-```text
-~/.config/goose-sandbox/.env
+```bash
+shellcheck goose-sandbox
 ```
+
+Build:
+
+```bash
+docker build -t goose-agent .
+```
+
+Setup check:
+
+```bash
+goose-sandbox doctor
+```
+
+GitHub Actions performs syntax validation, ShellCheck and a Docker build on pushes and pull requests.
 
 ---
 
-# 🔄 Typical workflow
+## 🎯 Philosophy
 
-```bash
-cd ~/projects/my-project
-```
-
-```bash
-goose-sandbox
-```
-
-Work:
-
-```text
-> Understand this project first.
-
-> Find the bug in the authentication flow.
-
-> Fix it and run the tests.
-```
-
-Exit Goose.
-
-Later:
-
-```bash
-cd ~/projects/my-project
-goose-sandbox
-```
-
-Your project-specific Goose state is still available through:
-
-```text
-.goose-sandbox/
-```
-
----
-
-# 🏗️ Architecture
-
-```text
-                    DeepInfra
-                        ▲
-                        │ HTTPS
-                        │
-                ┌───────┴───────┐
-                │ Docker        │
-                │               │
-                │ Goose         │
-                │               │
-                │ /workspace    │
-                └───────▲───────┘
-                        │
-                        │ bind mount
-                        │
-                current project
-                        │
-                        ├── source code
-                        ├── git repository
-                        │
-                        └── .goose-sandbox/
-                            └── persistent state
-```
-
----
-
-# 🎯 Philosophy
-
-The host provides only:
+Keep the host boring:
 
 ```text
 Docker
 +
-project
+project files
 +
 LLM credentials
 ```
 
-The agent environment lives inside Docker.
-
-The result is:
-
-* ✅ project-scoped
-* ✅ disposable
-* ✅ reproducible
-* ✅ persistent chat history
-* ✅ minimal host filesystem access
-* ✅ easy to use
-
-Start a project:
+Keep the workflow boring too:
 
 ```bash
 cd my-project
 goose-sandbox
 ```
 
-And work.
+Simple, isolated, reproducible and project-scoped.
