@@ -1,4 +1,4 @@
-FROM ghcr.io/aaif-goose/goose:latest
+FROM ghcr.io/aaif-goose/goose:v1.36.0
 
 USER root
 
@@ -25,9 +25,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     python3-venv \
     nodejs \
     npm \
-    # -------------------------------------------------------------------\
-    # Embedded C development tools\
-    # -------------------------------------------------------------------\
     gcc \
     g++ \
     gdb \
@@ -51,22 +48,23 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # -------------------------------------------------------------------
-# uv
+# uv (pinned, copied from the official image)
 # -------------------------------------------------------------------
-RUN curl -LsSf https://astral.sh/uv/install.sh \
-    | env UV_INSTALL_DIR=/usr/local/bin sh
+COPY --from=ghcr.io/astral-sh/uv:0.12.1 /uv /uvx /bin/
 
 # -------------------------------------------------------------------
-# Workspace
+# Workspace + persistent Goose state
 # -------------------------------------------------------------------
-RUN mkdir -p /workspace \
-    && chown goose:goose /workspace
+RUN mkdir -p /workspace /goose-state \
+    && chown goose:goose /workspace /goose-state
 
 USER goose
-
 WORKDIR /workspace
 
-ENV GOOSE_PATH_ROOT=/workspace/.goose-sandbox
+# /goose-state is bind-mounted by the launcher from
+# <project>/.goose-sandbox. Keeping it outside /workspace prevents Goose
+# from treating its own state as project source during normal analysis.
+ENV GOOSE_PATH_ROOT=/goose-state
 
 ENTRYPOINT ["goose"]
 CMD ["session"]
