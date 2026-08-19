@@ -57,6 +57,13 @@ install -m 755 goose-sandbox ~/.local/bin/goose-sandbox
 
 Make sure `~/.local/bin` is in your `PATH`.
 
+For Bash:
+
+```bash
+grep -qxF 'export PATH="$HOME/.local/bin:$PATH"' ~/.bashrc || echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc
+source ~/.bashrc
+```
+
 ### 4. Check setup
 
 ```bash
