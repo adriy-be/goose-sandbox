@@ -1,0 +1,37 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+IMAGE="${GOOSE_SANDBOX_IMAGE:-goose-agent}"
+ENV_FILE="${GOOSE_SANDBOX_ENV_FILE:-$HOME/.config/goose-sandbox/.env}"
+
+# By default, expose ONLY the current project directory.
+WORKSPACE="${GOOSE_SANDBOX_WORKSPACE:-$PWD}"
+
+if [[ ! -d "$WORKSPACE" ]]; then
+    echo "error: workspace does not exist: $WORKSPACE" >&2
+    exit 1
+fi
+
+if [[ ! -f "$ENV_FILE" ]]; then
+    echo "error: env file not found: $ENV_FILE" >&2
+    exit 1
+fi
+
+if [[ ! -d "$WORKSPACE/.goose-sandbox" ]]; then
+    mkdir "$WORKSPACE/.goose-sandbox"
+fi
+
+if [[ ! -f "$WORKSPACE/.goose-sandbox/.gooseignore" ]]; then
+    touch "$WORKSPACE/.goose-sandbox/.gooseignore"
+fi
+
+
+exec docker run --rm -it \
+    --security-opt=no-new-privileges:true \
+    --cap-drop=ALL \
+    --pids-limit=512 \
+    --memory=8g \
+    --env-file "$ENV_FILE" \
+    --mount type=bind,src="$WORKSPACE",dst=/workspace \
+    --workdir /workspace \
+    "$IMAGE" session "$@"
