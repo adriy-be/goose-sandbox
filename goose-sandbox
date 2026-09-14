@@ -144,12 +144,24 @@ doctor() {
         failed=1
     fi
 
+    if [[ -d "$GLOBAL_SKILLS" ]]; then
+        if [[ -w "$GLOBAL_SKILLS" ]]; then
+            ok "Global skills writable: $GLOBAL_SKILLS"
+        else
+            fail "Global skills not writable: $GLOBAL_SKILLS"
+            failed=1
+        fi
+    elif [[ -w "$(dirname "$GLOBAL_SKILLS")" ]]; then
+        ok "Global skills dir can be created: $GLOBAL_SKILLS"
+    else
+        fail "Global skills dir not creatable: $GLOBAL_SKILLS"
+        failed=1
+    fi
+
     local target="$IMAGE"
-    if [[ -n "$RECIPE" ]] || [[ -f "$STATE_DIR/recipe/Dockerfile" ]] || [[ -f "$STATE_DIR/recipe.dockerfile" ]]; then
-        local slug
-        slug="$(basename "$WORKSPACE" | tr '[:upper:]' '[:lower:]' | tr -c 'a-z0-9._-' '-')"
+    if [[ -n "$RECIPE" ]]; then
         if [[ -z "${GOOSE_SANDBOX_IMAGE:-}" ]]; then
-            target="goose-agent:$slug"
+            target="$(project_tag)"
         fi
         ok "Recipe found; image will be: $target"
     fi
@@ -159,21 +171,22 @@ doctor() {
     else
         warn "Image not found locally: $target"
         warn "Base image:   docker build -t 'goose-agent' .   (in this repo)"
-        if [[ -n "$RECIPE" ]] || [[ -f "$STATE_DIR/recipe/Dockerfile" ]] || [[ -f "$STATE_DIR/recipe.dockerfile" ]]; then
+        if [[ -n "$RECIPE" ]]; then
             warn "Recipe image: goose-sandbox will build it on next launch"
         else
             warn "Build it with: docker build -t '$target' ."
         fi
     fi
 
-    printf '\nWorkspace: %s\n' "$WORKSPACE"
-    printf 'Image:     %s\n' "$target"
-    printf 'Memory:    %s\n' "$MEMORY"
-    printf 'PIDs:      %s\n' "$PIDS"
-    printf 'Network:   %s\n' "$NETWORK"
+    printf '\nWorkspace:    %s\n' "$WORKSPACE"
+    printf 'Image:        %s\n' "$target"
+    printf 'Memory:       %s\n' "$MEMORY"
+    printf 'PIDs:         %s\n' "$PIDS"
+    printf 'Network:      %s\n' "$NETWORK"
+    printf 'Global skills:%s\n' "$GLOBAL_SKILLS"
 
     if [[ -n "$CPUS" ]]; then
-        printf 'CPUs:      %s\n' "$CPUS"
+        printf 'CPUs:         %s\n' "$CPUS"
     fi
 
     if (( failed != 0 )); then
@@ -825,19 +838,43 @@ if [[ -n "$RECIPE" ]]; then
     fi
 fi
 
+DOCKER_ARGS=(
+    run
+    --rm
+    -it
+    --init
+    --security-opt=no-new-privileges:true
+    --cap-drop=ALL
+    --pids-limit="$PIDS"
+    --memory="$MEMORY"
+    --env-file "$ENV_FILE"
+    --mount "type=bind,src=$WORKSPACE,dst=/workspace"
+    --mount "type=bind,src=$STATE_DIR,dst=/goose-state"
+    "--tmpfs=/workspace/.goose-sandbox:rw,noexec,nosuid,nodev,size=512m"
+    --workdir /workspace
+)
+
 # --- Skills (mounted, never copied) -------------------------------------
-# Mount a host skills directory over the goose global skills path so any
-# skill installed during a session is written straight back to the host
-# directory and persists between sessions.
-GOOSE_SKILLS_DIR="/home/goose/.agents/skills"
-SKILLS_MOUNT=""
+# Global skills: host ~/.config/goose/skills -> goose global skills path
+# (/home/goose/.agents/skills), so `skills add --global` results are available
+# in every sandbox.
+mkdir -p "$GLOBAL_SKILLS"
+DOCKER_ARGS+=(--mount "type=bind,src=$GLOBAL_SKILLS,dst=/home/goose/.agents/skills")
+
+# Project skills: the sandbox skills dir (recipe/skills, or .goose-sandbox/skills
+# without a recipe) is mounted over the goose project skills path
+# (/workspace/.agents/skills) — only when it already exists, so launching does
+# not create skill directories out of the blue. If the project already manages
+# its own .agents/skills (e.g. installed by `goose-sandbox skills add`), the
+# real directory stays visible and nothing is masked.
 if [[ -n "$RECIPE" ]]; then
-    HOST_SKILLS="$RECIPE_DIR/skills"
+    PROJECT_SKILLS="$RECIPE_DIR/skills"
 else
-    HOST_SKILLS="$STATE_DIR/skills"
+    PROJECT_SKILLS="$STATE_DIR/skills"
 fi
-mkdir -p "$HOST_SKILLS"
-SKILLS_MOUNT="type=bind,src=$HOST_SKILLS,dst=$GOOSE_SKILLS_DIR"
+if [[ -d "$PROJECT_SKILLS" && ! -d "$WORKSPACE/.agents/skills" ]]; then
+    DOCKER_ARGS+=(--mount "type=bind,src=$PROJECT_SKILLS,dst=/workspace/.agents/skills")
+fi
 
 # --- MCP servers (--with-extension flags) -------------------------------
 # mcp.txt lives next to the recipe: one server per line, "name=command".
@@ -858,23 +895,6 @@ if [[ -n "$RECIPE" && -f "$RECIPE_DIR/mcp.txt" ]]; then
         fi
     done < "$RECIPE_DIR/mcp.txt"
 fi
-
-DOCKER_ARGS=(
-    run
-    --rm
-    -it
-    --init
-    --security-opt=no-new-privileges:true
-    --cap-drop=ALL
-    --pids-limit="$PIDS"
-    --memory="$MEMORY"
-    --env-file "$ENV_FILE"
-    --mount "type=bind,src=$WORKSPACE,dst=/workspace"
-    --mount "type=bind,src=$STATE_DIR,dst=/goose-state"
-    --mount "$SKILLS_MOUNT"
-    "--tmpfs=/workspace/.goose-sandbox:rw,noexec,nosuid,nodev,size=512m"
-    --workdir /workspace
-)
 
 if [[ -n "$CPUS" ]]; then
     DOCKER_ARGS+=(--cpus="$CPUS")
