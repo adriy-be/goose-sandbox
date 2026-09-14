@@ -49,6 +49,12 @@ bats --filter "cmd_install" tests/   # by test name
   directly. The launcher has a sourcing guard (`BASH_SOURCE[0] != $0` returns
   early) so sourcing loads definitions without running the CLI.
 
+By default the harness runs in `DEV_MODE=1` (the repo layout sits next to the
+sourced script). To reach the `DEV_MODE=0` branches — `ensure_managed_repo`'s
+git-clone and `cmd_update`'s non-dev fetch/reset paths — call
+`sandbox_up_nondev`, which sources a copy of the launcher from a bare temp dir
+so `DEV_MODE` is 0.
+
 > **Harness gotcha:** the launcher computes its globals (`WORKSPACE`,
 > `STATE_DIR`, `RECIPE`, …) once, at source time, from the environment. To test
 > a function with different settings, set the `GOOSE_SANDBOX_*` variables and

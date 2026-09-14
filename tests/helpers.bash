@@ -8,8 +8,8 @@
 
 SCRIPT_PATH="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/goose-sandbox"
 
-# Create a fresh temp environment and source the real launcher.
-sandbox_up() {
+# Create a fresh temp environment (HOME, workspace, state, mockbin).
+env_up() {
     TEST_ROOT="$(mktemp -d)"
     export HOME="$TEST_ROOT/home"
     mkdir -p "$HOME"
@@ -26,10 +26,28 @@ sandbox_up() {
     export MOCK_BIN="$TEST_ROOT/mockbin"
     mkdir -p "$MOCK_BIN"
     export PATH="$MOCK_BIN:$PATH"
+}
 
+# Create a fresh temp environment and source the real launcher (DEV_MODE=1,
+# since the repo Dockerfile/recipes are present next to the script).
+sandbox_up() {
+    env_up
     # The launcher is a bash script; dispatch is guarded when sourced.
     # shellcheck disable=SC1090
     source "$SCRIPT_PATH"
+}
+
+# Like sandbox_up, but sources a copy of the launcher placed in a bare temp
+# dir with no Dockerfile/recipes siblings, so DEV_MODE=0. This makes the
+# git-clone (ensure_managed_repo) and non-dev update (cmd_update) branches
+# reachable.
+sandbox_up_nondev() {
+    env_up
+    local bare="$TEST_ROOT/bare"
+    mkdir -p "$bare"
+    cp "$SCRIPT_PATH" "$bare/goose-sandbox"
+    # shellcheck disable=SC1090
+    source "$bare/goose-sandbox"
 }
 
 # Install a stub executable on PATH that records its argv.

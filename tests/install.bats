@@ -48,6 +48,15 @@ load helpers
     [[ "$output" == *"Copying repository"* ]]
 }
 
+@test "ensure_managed_repo: clones the repo via git in non-dev mode" {
+    sandbox_up_nondev
+    mock_cmd git 'echo "git: $*" >> "$MOCK_BIN/git.log"'
+    run ensure_managed_repo
+    [ "$status" -eq 0 ]
+    grep -q "git: clone --depth 1 --branch main" "$MOCK_BIN/git.log"
+    grep -q "$SANDBOX_HOME" "$MOCK_BIN/git.log"
+}
+
 @test "cmd_update: dev mode pulls, reinstalls and rebuilds" {
     mock_cmd git 'echo "git: $*"'
     mock_cmd install 'dest="${@: -1}"; mkdir -p "$(dirname "$dest")"; touch "$dest"'
@@ -56,4 +65,18 @@ load helpers
     [ "$status" -eq 0 ]
     [[ "$output" == *"git: pull --ff-only"* ]]
     [[ "$output" == *"Rebuilding base image"* ]]
+}
+
+@test "cmd_update: non-dev mode fetches and resets the managed repo" {
+    sandbox_up_nondev
+    mkdir -p "$SANDBOX_HOME/.git"
+    touch "$SANDBOX_HOME/goose-sandbox"
+    mock_cmd git 'echo "git: $*" >> "$MOCK_BIN/git.log"'
+    mock_cmd install 'dest="${@: -1}"; mkdir -p "$(dirname "$dest")"; touch "$dest"'
+    mock_cmd docker 'exit 0'
+    run cmd_update
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"Updating managed repo"* ]]
+    grep -q "git: fetch origin main" "$MOCK_BIN/git.log"
+    grep -q "git: reset --hard origin/main" "$MOCK_BIN/git.log"
 }
