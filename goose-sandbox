@@ -773,6 +773,10 @@ cmd_skills() {
 }
 
 # --- dispatch ------------------------------------------------------------
+# Allow `source goose-sandbox` (e.g. the bats test harness) to load the
+# function definitions and top-level defaults without running the CLI.
+[[ "${BASH_SOURCE[0]}" != "$0" ]] && return 0
+
 case "${1:-}" in
     doctor)
         resolve_recipe
