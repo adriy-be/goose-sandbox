@@ -1,6 +1,10 @@
 # 🪿 Goose Sandbox
 
-Run **Goose inside Docker** with access limited to the project you choose.
+Run **Goose inside Docker** with access limited to the project you choose — an
+isolated, reproducible workspace for the
+[Goose](https://github.com/aaif-goose/goose) CLI agent. Per-project toolchains
+(recipes), skills, MCP servers and persistent chat history are supported out of
+the box, while the rest of your machine stays untouched.
 
 ```text
 Your PC
@@ -23,36 +27,24 @@ goose-sandbox
 
 ---
 
+## 📋 Prerequisites
+
+- **Docker** — Engine (Linux) or Docker Desktop (macOS / Windows). The daemon
+  must be running.
+- **bash** — built in on Linux and macOS. On **Windows**, use
+  [WSL2](https://learn.microsoft.com/en-us/windows/wsl/install) with a Linux
+  distribution: the launcher is a bash script and relies on Linux bind mounts.
+- **git** — recommended for `install` / `update` (a tarball download is used
+  as a fallback if git is missing).
+- **An LLM provider API key** — any OpenAI-compatible provider (see the
+  [DeepInfra example](#-deepinfra-example)).
+- **node / npx** — only required for the `skills` subcommand.
+
+---
+
 ## 🚀 Quick start
 
-### 1. Build
-
-```bash
-docker build -t goose-agent .
-```
-
-The image pins:
-
-- Goose `v1.50.0`
-- uv `0.12.1`
-
-Rebuilding does not silently move to a newer Goose release.
-
-> The base image installs only common agent tools. Language/server toolchains are
-> **not** baked in — each project defines its own *recipe* (see below) on top of the
-> base image.
-
-### 2. Configure
-
-```bash
-mkdir -p ~/.config/goose-sandbox
-cp sample.env ~/.config/goose-sandbox/.env
-chmod 600 ~/.config/goose-sandbox/.env
-```
-
-Edit the file and add your API key.
-
-### 3. Install the launcher
+### 1. Install the launcher
 
 ```bash
 ./goose-sandbox install
@@ -68,18 +60,54 @@ Override the target with `goose-sandbox install --dir DIR` or
 `GOOSE_SANDBOX_BIN_DIR`; the managed copy lives in `GOOSE_SANDBOX_HOME`
 (default `~/.local/share/goose-sandbox`).
 
-### 4. Check setup
+> Running straight from a clone without installing? Build the base image once:
+> `docker build -t goose-agent .`. It pins Goose `v1.50.0` and uv `0.12.1` —
+> rebuilding never silently moves to a newer Goose release.
+
+### 2. Configure
+
+```bash
+mkdir -p ~/.config/goose-sandbox
+cp sample.env ~/.config/goose-sandbox/.env
+chmod 600 ~/.config/goose-sandbox/.env
+```
+
+Edit the file and add your API key.
+
+### 3. Check setup
 
 ```bash
 goose-sandbox doctor
 ```
 
-Then, from any project:
+### 4. First run
+
+From inside a project:
 
 ```bash
 cd ~/projects/my-project
 goose-sandbox
 ```
+
+The launcher mounts **only the current directory** as `/workspace`, keeps your
+chat history and Goose state per-project in `.goose-sandbox/` (mounted as
+`/goose-state`), and starts an interactive Goose session in the container. If
+the project has an active recipe, its project-specific image is built first
+(see [Recipes](#-recipes-per-project-tooling)). Any arguments after the command
+name are passed through to `goose session`.
+
+---
+
+## 🧭 Commands at a glance
+
+| Command | What it does |
+| --- | --- |
+| `goose-sandbox` | Launch a Goose session for the current directory |
+| `goose-sandbox doctor` | Check Docker, env file, workspace, image and skills |
+| `goose-sandbox install [--dir DIR]` | Install launcher, managed repo and base image |
+| `goose-sandbox update` | Update launcher, managed repo and base image |
+| `goose-sandbox recipe list\|init\|add\|select\|edit\|remove` | Manage per-project toolchains |
+| `goose-sandbox skills add\|list\|remove [--global]` | Manage skills (requires npx) |
 
 ---
 
@@ -430,6 +458,22 @@ Change the model without rebuilding the image.
 
 ---
 
+## 🔧 Troubleshooting
+
+| Symptom | Fix |
+| --- | --- |
+| `docker: command not found` / "Docker daemon is not reachable" | Install or start Docker. On macOS/Windows launch Docker Desktop; on Linux `sudo systemctl start docker`. |
+| `goose-sandbox: command not found` | `~/.local/bin` is not on your `PATH` yet. Open a new shell or `source ~/.bashrc`, then re-run `goose-sandbox install`. |
+| "Environment file not found: .../.env" | Configuration was skipped. Copy `sample.env` to `~/.config/goose-sandbox/.env`, add your API key and `chmod 600` it. |
+| "Base image not found: goose-agent" | Run `goose-sandbox install` (builds it automatically), or `docker build -t goose-agent .` from this repo. |
+| `401` / `invalid api key` | Check the API key and model name in `~/.config/goose-sandbox/.env` against your provider. |
+| Warning about env-file permissions | Run `chmod 600 ~/.config/goose-sandbox/.env`. |
+| Model unreachable / network timeouts | Remote providers need networking — make sure `GOOSE_SANDBOX_NETWORK=none` is not set. |
+| First launch is slow | The base image (and the recipe image, if any) are being built. Later launches reuse the cached images. |
+| Unexpected files on disk | Only the current directory is mounted as `/workspace`; Goose can only read/write inside it. Run `goose-sandbox` from inside the project you want scoped. |
+
+---
+
 ## 📁 Repository
 
 ```text
@@ -503,3 +547,12 @@ goose-sandbox
 ```
 
 Simple, isolated, reproducible and project-scoped.
+
+---
+
+## 🙏 Credits
+
+Goose Sandbox is built on top of the community-maintained
+[`aaif-goose/goose`](https://github.com/aaif-goose/goose) project and its
+Docker image (`ghcr.io/aaif-goose/goose`), which provides the pinned Goose CLI
+and its runtime. Thanks to everyone who maintains and contributes to it.
