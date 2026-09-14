@@ -159,24 +159,37 @@ agent tools, uv, workspace/state dirs, `USER goose` and `ENTRYPOINT`. It pins
 Goose `v1.50.0`. Do **not** re-add language/server toolchains to the base image;
 they belong in project recipes.
 
-A project recipe lives in `<project>/.goose-sandbox/recipe/`:
+Project recipes are managed with `goose-sandbox recipe ...`
+(`list`, `init`, `add`, `select`, `edit`, `remove`) and stored in
+`<project>/.goose-sandbox/recipes/<name>/` (the active one is recorded in
+`<project>/.goose-sandbox/recipes/.active`). Each recipe has:
 
 - `Dockerfile` — a full Dockerfile `FROM goose-agent` installing toolchains.
   It must end by switching back to `USER goose` and `WORKDIR /workspace`.
 - `skills/` — skills (`<name>/SKILL.md`), mounted, never copied.
 - `mcp.txt` — MCP servers, one per line (`name=command` or an `http(s)` URL).
 
-Recipe templates are in `recipes/` (`c`, `csharp`, `server`). Keep them small,
-self-contained and each built `FROM goose-agent`.
+Legacy locations (`GOOSE_SANDBOX_RECIPE`, `.goose-sandbox/recipe.dockerfile`,
+`.goose-sandbox/recipe/Dockerfile`) are still detected.
+
+Recipe templates are in `recipes/`: `c`, `csharp`, `server` (`.dockerfile`
+files) plus `example/` (a directory with `Dockerfile`, `mcp.txt`, `skills/`).
+Keep them small, self-contained and each built `FROM goose-agent`.
 
 The launcher `goose-sandbox`:
 
-- detects `recipe/Dockerfile` (or `recipe.dockerfile`, or `GOOSE_SANDBOX_RECIPE`);
-- builds `goose-agent:<project>` from the base + recipe when needed
+- detects the active recipe (`GOOSE_SANDBOX_RECIPE`, `recipe.dockerfile`,
+  `recipe/Dockerfile`, then `.goose-sandbox/recipes/<active>/Dockerfile`);
+- builds `goose-agent:<project>-<content-hash>` from the base + recipe, where the
+  hash is derived from the recipe `Dockerfile` — so projects with the same name
+  don't collide and editing the recipe triggers an automatic rebuild
   (`GOOSE_SANDBOX_REBUILD=1` forces a rebuild; `GOOSE_SANDBOX_IMAGE` skips it);
-- **mounts** `recipe/skills/` over the goose global skills path
-  (`/home/goose/.agents/skills`) so in-session skill installs persist — it
-  never copies them;
+- **mounts** global skills (`~/.config/goose/skills`) over the goose global
+  skills path (`/home/goose/.agents/skills`) and mounts the recipe `skills/`
+  (or `.goose-sandbox/skills/` without a recipe) over the goose project skills
+  path (`/workspace/.agents/skills`), so in-session skill installs persist — it
+  never copies them. If the project already manages `.agents/skills` (installed
+  by `skills add`), the real directory is used instead (nothing is masked);
 - turns `recipe/mcp.txt` into `--with-extension` /
   `--with-streamable-http-extension` flags for `goose session`.
 

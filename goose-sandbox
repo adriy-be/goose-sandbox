@@ -185,13 +185,31 @@ doctor() {
 }
 
 # Resolve the recipe Dockerfile (if any) and the directory that holds it.
-# The recipe directory is where skills/ and mcp.txt live.
+# Precedence: GOOSE_SANDBOX_RECIPE, .goose-sandbox/recipe.dockerfile,
+# .goose-sandbox/recipe/Dockerfile (legacy), then the selected managed recipe
+# (.goose-sandbox/recipes/<active>/Dockerfile).
 resolve_recipe() {
     if [[ -z "$RECIPE" ]]; then
         if [[ -f "$STATE_DIR/recipe.dockerfile" ]]; then
             RECIPE="$STATE_DIR/recipe.dockerfile"
         elif [[ -f "$STATE_DIR/recipe/Dockerfile" ]]; then
             RECIPE="$STATE_DIR/recipe/Dockerfile"
+        elif [[ -d "$STATE_DIR/recipes" ]]; then
+            local active=""
+            if [[ -f "$STATE_DIR/recipes/.active" ]]; then
+                active="$(cat "$STATE_DIR/recipes/.active" 2>/dev/null || true)"
+                active="${active%%[[:space:]]*}"
+            fi
+            if [[ -n "$active" && -f "$STATE_DIR/recipes/$active/Dockerfile" ]]; then
+                RECIPE="$STATE_DIR/recipes/$active/Dockerfile"
+            else
+                while IFS= read -r d; do
+                    if [[ -f "$d/Dockerfile" ]]; then
+                        RECIPE="$d/Dockerfile"
+                        break
+                    fi
+                done < <(find "$STATE_DIR/recipes" -maxdepth 1 -mindepth 1 -type d ! -name '.*' 2>/dev/null | sort)
+            fi
         fi
     fi
     if [[ -z "$RECIPE" ]]; then
@@ -795,9 +813,8 @@ if [[ -n "$RECIPE" ]]; then
         exit 1
     fi
 
-    local_slug="$(basename "$WORKSPACE" | tr '[:upper:]' '[:lower:]' | tr -c 'a-z0-9._-' '-')"
     if [[ -z "${GOOSE_SANDBOX_IMAGE:-}" ]]; then
-        IMAGE="goose-agent:$local_slug"
+        IMAGE="$(project_tag)"
     fi
 
     if [[ "$REBUILD" == "1" ]] || ! docker image inspect "$IMAGE" >/dev/null 2>&1; then
