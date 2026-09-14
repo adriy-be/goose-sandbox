@@ -176,19 +176,20 @@ goose-sandbox skills list [--global]              # list installed skills
 goose-sandbox skills remove <name> [--global]     # remove a skill
 ```
 
-- **Local** (default): the skills CLI installs into the project (inside
-  `/workspace`, e.g. `.agents/skills/`), so goose sees them and they can be
-  committed with the project.
+- **Local** (default): the skills CLI installs into the project — inside
+  `/workspace`, at `<project>/.agents/skills/` — so goose sees them and they
+  can be committed with the project.
 - **Global** (`-g`): skills go to `~/.config/goose/skills/`, which is mounted
   into the sandbox at the goose global skills path
   (`/home/goose/.agents/skills`).
 
-`recipe/skills/` (and `.goose-sandbox/skills/` without a recipe) are
-**bind-mounted** over the goose project skills path
-(`/workspace/.agents/skills`) — not copied — so skills installed during a
-session persist. If the project already manages its own `.agents/skills`
-(e.g. via `skills add`), the real directory is used instead and nothing is
-masked.
+Project skills written during a session (goose creates them under
+`/workspace/.agents/skills/`) persist to `<project>/.agents/skills/` because
+`/workspace` is a bind mount — nothing is masked, no extra mount needed. The
+legacy recipe skills dir (`recipe/skills/`, or `.goose-sandbox/skills/`
+without a recipe) is **bind-mounted** over the goose backward-compatible
+project skills path (`/workspace/.goose/skills`) whenever it exists — it is
+never copied.
 
 ### MCP servers
 

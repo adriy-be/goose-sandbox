@@ -186,10 +186,11 @@ The launcher `goose-sandbox`:
   (`GOOSE_SANDBOX_REBUILD=1` forces a rebuild; `GOOSE_SANDBOX_IMAGE` skips it);
 - **mounts** global skills (`~/.config/goose/skills`) over the goose global
   skills path (`/home/goose/.agents/skills`) and mounts the recipe `skills/`
-  (or `.goose-sandbox/skills/` without a recipe) over the goose project skills
-  path (`/workspace/.agents/skills`), so in-session skill installs persist — it
-  never copies them. If the project already manages `.agents/skills` (installed
-  by `skills add`), the real directory is used instead (nothing is masked);
+  (or `.goose-sandbox/skills/` without a recipe) over the goose
+  backward-compatible project skills path (`/workspace/.goose/skills`) whenever
+  it exists — it never copies them. Project skills installed by `skills add`
+  (or created by goose during a session) live in `<project>/.agents/skills`,
+  inside `/workspace`, so they are always visible and nothing is masked;
 - turns `recipe/mcp.txt` into `--with-extension` /
   `--with-streamable-http-extension` flags for `goose session`.
 
@@ -208,10 +209,11 @@ reinstalls the launcher and rebuilds the base image.
 
 Skills are managed with the vercel-labs/skills CLI (`npx skills ... --agent
 goose`): `goose-sandbox skills add|list|remove [--global]`. Local (default)
-installs go into the project (visible inside `/workspace`); global installs go
-to `~/.config/goose/skills` (mounted at `/home/goose/.agents/skills`). The
-launcher must keep `.goose-sandbox/` git-ignored; `.goose/skills` /
-`.agents/skills` created by `skills add` in the project may be committed.
+installs go into the project at `<project>/.agents/skills` (inside
+`/workspace`); global installs go to `~/.config/goose/skills` (mounted at
+`/home/goose/.agents/skills`). The launcher must keep `.goose-sandbox/`
+git-ignored; `.agents/skills` created by `skills add` in the project may be
+committed.
 
 ---
 

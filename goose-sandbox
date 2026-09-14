@@ -715,7 +715,7 @@ Usage:
 
 Skills are managed with the vercel-labs/skills CLI (npx skills ... --agent goose).
 Local (default) skills are installed by the skills CLI into the project
-(inside /workspace) and are visible to goose in the sandbox.
+(<project>/.agents/skills, inside /workspace) and are always visible to goose.
 Global skills (-g) go to ~/.config/goose/skills/ and are mounted into the
 sandbox at the goose global skills path.
 USAGE
@@ -861,19 +861,20 @@ DOCKER_ARGS=(
 mkdir -p "$GLOBAL_SKILLS"
 DOCKER_ARGS+=(--mount "type=bind,src=$GLOBAL_SKILLS,dst=/home/goose/.agents/skills")
 
-# Project skills: the sandbox skills dir (recipe/skills, or .goose-sandbox/skills
-# without a recipe) is mounted over the goose project skills path
-# (/workspace/.agents/skills) — only when it already exists, so launching does
-# not create skill directories out of the blue. If the project already manages
-# its own .agents/skills (e.g. installed by `goose-sandbox skills add`), the
-# real directory stays visible and nothing is masked.
+# Project skills: `goose-sandbox skills add` (and goose itself during a
+# session) write to <project>/.agents/skills, which is part of /workspace and
+# always visible — no extra mount, nothing masked. The legacy project skills
+# dir (recipe/skills, or .goose-sandbox/skills without a recipe) is mounted
+# over the goose backward-compatible project skills path
+# (/workspace/.goose/skills) whenever it exists, so existing skills keep
+# working deterministically.
 if [[ -n "$RECIPE" ]]; then
     PROJECT_SKILLS="$RECIPE_DIR/skills"
 else
     PROJECT_SKILLS="$STATE_DIR/skills"
 fi
-if [[ -d "$PROJECT_SKILLS" && ! -d "$WORKSPACE/.agents/skills" ]]; then
-    DOCKER_ARGS+=(--mount "type=bind,src=$PROJECT_SKILLS,dst=/workspace/.agents/skills")
+if [[ -d "$PROJECT_SKILLS" ]]; then
+    DOCKER_ARGS+=(--mount "type=bind,src=$PROJECT_SKILLS,dst=/workspace/.goose/skills")
 fi
 
 # --- MCP servers (--with-extension flags) -------------------------------
