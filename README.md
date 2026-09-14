@@ -117,11 +117,32 @@ A recipe lives in the project's sandbox directory:
 
 ```text
 <project>/.goose-sandbox/
-└── recipe/
-    ├── Dockerfile     # toolchain install, FROM goose-agent
-    ├── skills/        # SKILL.md skills, mounted (see below)
-    └── mcp.txt        # MCP servers, one per line
+└── recipes/
+    ├── .active           # selected recipe name
+    └── <name>/
+        ├── Dockerfile     # toolchain install, FROM goose-agent
+        ├── skills/        # SKILL.md skills, mounted (see below)
+        └── mcp.txt        # MCP servers, one per line
 ```
+
+> Legacy locations are still detected: `GOOSE_SANDBOX_RECIPE`,
+> `.goose-sandbox/recipe.dockerfile` and `.goose-sandbox/recipe/Dockerfile`.
+
+### Managing recipes
+
+```bash
+goose-sandbox recipe list                        # templates + local recipes + active
+goose-sandbox recipe add <template>              # install a template (c, csharp, server, example)
+goose-sandbox recipe init [name]                 # blank recipe skeleton
+goose-sandbox recipe select <name>               # switch the active recipe
+goose-sandbox recipe edit [name]                 # edit Dockerfile / mcp.txt in $EDITOR
+goose-sandbox recipe remove <name> [--image]     # delete a recipe (+ its built image)
+```
+
+`recipe add` copies a built-in template into `.goose-sandbox/recipes/<name>/`
+and selects it (use `--no-select` to only add, `--force` to overwrite). The
+active recipe is recorded in `.goose-sandbox/recipes/.active`; the launcher
+builds and runs that recipe on launch.
 
 `recipe/Dockerfile` is a normal Dockerfile built on top of the base image:
 
@@ -143,12 +164,31 @@ recipes/csharp.dockerfile   # .NET SDK
 recipes/server.dockerfile   # server management tools
 ```
 
-### Skills (mounted, never copied)
+### Skills (vercel-labs/skills)
 
-`recipe/skills/` is **bind-mounted** over the goose global skills path
-(`~/.agents/skills`) — it is not copied. A skill installed during a session is
-written straight back to `recipe/skills/` and persists. Without a recipe,
-installed skills persist into `.goose-sandbox/skills/`.
+Skills are managed with the [vercel-labs/skills](https://github.com/vercel-labs/skills)
+CLI (`npx skills ... --agent goose`). They can be **global** (available in all
+projects) or **local** to the project — local by default.
+
+```bash
+goose-sandbox skills add <source> [--global]      # install a skill (local by default)
+goose-sandbox skills list [--global]              # list installed skills
+goose-sandbox skills remove <name> [--global]     # remove a skill
+```
+
+- **Local** (default): the skills CLI installs into the project (inside
+  `/workspace`, e.g. `.agents/skills/`), so goose sees them and they can be
+  committed with the project.
+- **Global** (`-g`): skills go to `~/.config/goose/skills/`, which is mounted
+  into the sandbox at the goose global skills path
+  (`/home/goose/.agents/skills`).
+
+`recipe/skills/` (and `.goose-sandbox/skills/` without a recipe) are
+**bind-mounted** over the goose project skills path
+(`/workspace/.agents/skills`) — not copied — so skills installed during a
+session persist. If the project already manages its own `.agents/skills`
+(e.g. via `skills add`), the real directory is used instead and nothing is
+masked.
 
 ### MCP servers
 
