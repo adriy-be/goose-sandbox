@@ -9,6 +9,11 @@ PIDS="${GOOSE_SANDBOX_PIDS:-512}"
 CPUS="${GOOSE_SANDBOX_CPUS:-}"
 NETWORK="${GOOSE_SANDBOX_NETWORK:-default}"
 STATE_DIR="$WORKSPACE/.goose-sandbox"
+RECIPE="${GOOSE_SANDBOX_RECIPE:-}"
+REBUILD="${GOOSE_SANDBOX_REBUILD:-0}"
+
+# The base image (FROM ... in a recipe). Built once from this repo's Dockerfile.
+BASE_IMAGE="goose-agent"
 
 usage() {
     cat <<'USAGE'
@@ -24,6 +29,10 @@ Launcher settings (host environment):
   GOOSE_SANDBOX_PIDS        PID limit (default: 512)
   GOOSE_SANDBOX_CPUS        Optional CPU limit, e.g. 4
   GOOSE_SANDBOX_NETWORK     Docker network; use "none" to disable networking
+  GOOSE_SANDBOX_RECIPE      Project recipe Dockerfile
+                            (default: .goose-sandbox/recipe/Dockerfile
+                             or .goose-sandbox/recipe.dockerfile)
+  GOOSE_SANDBOX_REBUILD     1 to force rebuilding the recipe image
 USAGE
 }
 
@@ -108,15 +117,30 @@ doctor() {
         failed=1
     fi
 
-    if command -v docker >/dev/null 2>&1 && docker image inspect "$IMAGE" >/dev/null 2>&1; then
-        ok "Image found: $IMAGE"
+    local target="$IMAGE"
+    if [[ -n "$RECIPE" ]] || [[ -f "$STATE_DIR/recipe/Dockerfile" ]] || [[ -f "$STATE_DIR/recipe.dockerfile" ]]; then
+        local slug
+        slug="$(basename "$WORKSPACE" | tr '[:upper:]' '[:lower:]' | tr -c 'a-z0-9._-' '-')"
+        if [[ -z "${GOOSE_SANDBOX_IMAGE:-}" ]]; then
+            target="goose-agent:$slug"
+        fi
+        ok "Recipe found; image will be: $target"
+    fi
+
+    if command -v docker >/dev/null 2>&1 && docker image inspect "$target" >/dev/null 2>&1; then
+        ok "Image found: $target"
     else
-        warn "Image not found locally: $IMAGE"
-        warn "Build it with: docker build -t '$IMAGE' ."
+        warn "Image not found locally: $target"
+        warn "Base image:   docker build -t 'goose-agent' .   (in this repo)"
+        if [[ -n "$RECIPE" ]] || [[ -f "$STATE_DIR/recipe/Dockerfile" ]] || [[ -f "$STATE_DIR/recipe.dockerfile" ]]; then
+            warn "Recipe image: goose-sandbox will build it on next launch"
+        else
+            warn "Build it with: docker build -t '$target' ."
+        fi
     fi
 
     printf '\nWorkspace: %s\n' "$WORKSPACE"
-    printf 'Image:     %s\n' "$IMAGE"
+    printf 'Image:     %s\n' "$target"
     printf 'Memory:    %s\n' "$MEMORY"
     printf 'PIDs:      %s\n' "$PIDS"
     printf 'Network:   %s\n' "$NETWORK"
@@ -133,8 +157,26 @@ doctor() {
     printf '\nReady.\n'
 }
 
+# Resolve the recipe Dockerfile (if any) and the directory that holds it.
+# The recipe directory is where skills/ and mcp.txt live.
+resolve_recipe() {
+    if [[ -z "$RECIPE" ]]; then
+        if [[ -f "$STATE_DIR/recipe.dockerfile" ]]; then
+            RECIPE="$STATE_DIR/recipe.dockerfile"
+        elif [[ -f "$STATE_DIR/recipe/Dockerfile" ]]; then
+            RECIPE="$STATE_DIR/recipe/Dockerfile"
+        fi
+    fi
+    if [[ -z "$RECIPE" ]]; then
+        RECIPE_DIR=""
+    else
+        RECIPE_DIR="$(cd "$(dirname "$RECIPE")" && pwd)"
+    fi
+}
+
 case "${1:-}" in
     doctor)
+        resolve_recipe
         doctor
         exit $?
         ;;
@@ -152,6 +194,64 @@ if [[ ! -f "$ENV_FILE" ]]; then
 fi
 
 ensure_state_dir
+resolve_recipe
+
+# --- Recipe image -------------------------------------------------------
+# When a project defines a recipe, build a project-specific image on top
+# of the base image and run that instead of the base directly.
+if [[ -n "$RECIPE" ]]; then
+    if ! docker image inspect "$BASE_IMAGE" >/dev/null 2>&1; then
+        fail "Base image not found: $BASE_IMAGE"
+        fail "Build it first from this repo: docker build -t '$BASE_IMAGE' ."
+        exit 1
+    fi
+
+    local_slug="$(basename "$WORKSPACE" | tr '[:upper:]' '[:lower:]' | tr -c 'a-z0-9._-' '-')"
+    if [[ -z "${GOOSE_SANDBOX_IMAGE:-}" ]]; then
+        IMAGE="goose-agent:$local_slug"
+    fi
+
+    if [[ "$REBUILD" == "1" ]] || ! docker image inspect "$IMAGE" >/dev/null 2>&1; then
+        ok "Building recipe image: $IMAGE"
+        docker build -f "$RECIPE" -t "$IMAGE" "$RECIPE_DIR"
+    else
+        ok "Using recipe image: $IMAGE"
+    fi
+fi
+
+# --- Skills (mounted, never copied) -------------------------------------
+# Mount a host skills directory over the goose global skills path so any
+# skill installed during a session is written straight back to the host
+# directory and persists between sessions.
+GOOSE_SKILLS_DIR="/home/goose/.agents/skills"
+SKILLS_MOUNT=""
+if [[ -n "$RECIPE" ]]; then
+    HOST_SKILLS="$RECIPE_DIR/skills"
+else
+    HOST_SKILLS="$STATE_DIR/skills"
+fi
+mkdir -p "$HOST_SKILLS"
+SKILLS_MOUNT="type=bind,src=$HOST_SKILLS,dst=$GOOSE_SKILLS_DIR"
+
+# --- MCP servers (--with-extension flags) -------------------------------
+# mcp.txt lives next to the recipe: one server per line, "name=command".
+# http(s):// lines become --with-streamable-http-extension.
+MCP_ARGS=()
+if [[ -n "$RECIPE" && -f "$RECIPE_DIR/mcp.txt" ]]; then
+    while IFS= read -r line || [[ -n "$line" ]]; do
+        line="${line%%#*}"
+        line="${line#"${line%%[![:space:]]*}"}"
+        line="${line%"${line##*[![:space:]]}"}"
+        [[ -z "$line" ]] && continue
+        if [[ "$line" == http://* || "$line" == https://* ]]; then
+            MCP_ARGS+=(--with-streamable-http-extension "$line")
+        elif [[ "$line" == *=* ]]; then
+            MCP_ARGS+=(--with-extension "${line%%=*}:${line#*=}")
+        else
+            MCP_ARGS+=(--with-extension "$line")
+        fi
+    done < "$RECIPE_DIR/mcp.txt"
+fi
 
 DOCKER_ARGS=(
     run
@@ -165,7 +265,8 @@ DOCKER_ARGS=(
     --env-file "$ENV_FILE"
     --mount "type=bind,src=$WORKSPACE,dst=/workspace"
     --mount "type=bind,src=$STATE_DIR,dst=/goose-state"
-    "--tmpfs=/workspace/.goose-sandbox:rw,noexec,nosuid,nodev,size=1m"
+    --mount "$SKILLS_MOUNT"
+    "--tmpfs=/workspace/.goose-sandbox:rw,noexec,nosuid,nodev,size=512m"
     --workdir /workspace
 )
 
@@ -179,4 +280,4 @@ elif [[ "$NETWORK" != "default" && -n "$NETWORK" ]]; then
     DOCKER_ARGS+=(--network="$NETWORK")
 fi
 
-exec docker "${DOCKER_ARGS[@]}" "$IMAGE" session "$@"
+exec docker "${DOCKER_ARGS[@]}" "$IMAGE" session "${MCP_ARGS[@]}" "$@"

@@ -33,10 +33,14 @@ docker build -t goose-agent .
 
 The image pins:
 
-- Goose `v1.36.0`
+- Goose `v1.50.0`
 - uv `0.12.1`
 
 Rebuilding does not silently move to a newer Goose release.
+
+> The base image installs only common agent tools. Language/server toolchains are
+> **not** baked in — each project defines its own *recipe* (see below) on top of the
+> base image.
 
 ### 2. Configure
 
@@ -75,6 +79,77 @@ Then, from any project:
 ```bash
 cd ~/projects/my-project
 goose-sandbox
+```
+
+---
+
+## 🧪 Recipes (per-project tooling)
+
+The base image is intentionally minimal. Each project can define its own
+**recipe** that adds toolchains, skills and MCP servers. The launcher detects
+the recipe, builds a project-specific image on top of the base, and runs it.
+
+### Recipe structure
+
+A recipe lives in the project's sandbox directory:
+
+```text
+<project>/.goose-sandbox/
+└── recipe/
+    ├── Dockerfile     # toolchain install, FROM goose-agent
+    ├── skills/        # SKILL.md skills, mounted (see below)
+    └── mcp.txt        # MCP servers, one per line
+```
+
+`recipe/Dockerfile` is a normal Dockerfile built on top of the base image:
+
+```dockerfile
+FROM goose-agent
+USER root
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    gcc g++ cmake make ninja-build gdb binutils \
+    && rm -rf /var/lib/apt/lists/*
+USER goose
+WORKDIR /workspace
+```
+
+Ready-made templates live in [`recipes/`](recipes/):
+
+```text
+recipes/c.dockerfile        # C / C++ toolchain
+recipes/csharp.dockerfile   # .NET SDK
+recipes/server.dockerfile   # server management tools
+```
+
+### Skills (mounted, never copied)
+
+`recipe/skills/` is **bind-mounted** over the goose global skills path
+(`~/.agents/skills`) — it is not copied. A skill installed during a session is
+written straight back to `recipe/skills/` and persists. Without a recipe,
+installed skills persist into `.goose-sandbox/skills/`.
+
+### MCP servers
+
+`recipe/mcp.txt` declares MCP servers, one per line:
+
+```text
+# local stdio server
+memory=npx -y @modelcontextprotocol/server-memory
+# remote server over HTTP
+https://example.com/mcp
+```
+
+The launcher passes them to `goose session` as `--with-extension` /
+`--with-streamable-http-extension`. MCP installed interactively inside the
+sandbox persists via the `/goose-state` mount (`config/config.yaml`).
+
+### Building & overriding
+
+```bash
+goose-sandbox            # builds goose-agent:<project> from the recipe if needed
+GOOSE_SANDBOX_REBUILD=1 goose-sandbox    # force a rebuild
+GOOSE_SANDBOX_RECIPE=/path/to/recipe.dockerfile goose-sandbox
+GOOSE_SANDBOX_IMAGE=custom-image goose-sandbox   # skip building, use this image
 ```
 
 ---
@@ -298,6 +373,10 @@ Change the model without rebuilding the image.
 ├── LICENSE
 ├── README.md
 ├── goose-sandbox
+├── recipes/
+│   ├── c.dockerfile
+│   ├── csharp.dockerfile
+│   └── server.dockerfile
 └── sample.env
 ```
 

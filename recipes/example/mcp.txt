@@ -1,0 +1,4 @@
+# Local stdio MCP server
+memory=npx -y @modelcontextprotocol/server-memory
+# Remote server over HTTP (becomes --with-streamable-http-extension)
+# https://example.com/mcp

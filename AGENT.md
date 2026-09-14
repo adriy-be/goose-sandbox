@@ -39,6 +39,7 @@ project-scoped
 ├── LICENSE
 ├── README.md
 ├── goose-sandbox
+├── recipes/            # recipe templates (c, csharp, server)
 └── sample.env
 ```
 
@@ -148,6 +149,40 @@ Do not replace the official pinned uv image copy with `curl | sh`.
 Prefer installing project tooling in the Dockerfile rather than requiring it on the host.
 
 Do not introduce Docker Compose, Docker-in-Docker, Kubernetes or background services unless explicitly requested.
+
+---
+
+## 🧪 Recipes (per-project tooling)
+
+The base `Dockerfile` (image `goose-agent`) must stay minimal: only common
+agent tools, uv, workspace/state dirs, `USER goose` and `ENTRYPOINT`. It pins
+Goose `v1.50.0`. Do **not** re-add language/server toolchains to the base image;
+they belong in project recipes.
+
+A project recipe lives in `<project>/.goose-sandbox/recipe/`:
+
+- `Dockerfile` — a full Dockerfile `FROM goose-agent` installing toolchains.
+  It must end by switching back to `USER goose` and `WORKDIR /workspace`.
+- `skills/` — skills (`<name>/SKILL.md`), mounted, never copied.
+- `mcp.txt` — MCP servers, one per line (`name=command` or an `http(s)` URL).
+
+Recipe templates are in `recipes/` (`c`, `csharp`, `server`). Keep them small,
+self-contained and each built `FROM goose-agent`.
+
+The launcher `goose-sandbox`:
+
+- detects `recipe/Dockerfile` (or `recipe.dockerfile`, or `GOOSE_SANDBOX_RECIPE`);
+- builds `goose-agent:<project>` from the base + recipe when needed
+  (`GOOSE_SANDBOX_REBUILD=1` forces a rebuild; `GOOSE_SANDBOX_IMAGE` skips it);
+- **mounts** `recipe/skills/` over the goose global skills path
+  (`/home/goose/.agents/skills`) so in-session skill installs persist — it
+  never copies them;
+- turns `recipe/mcp.txt` into `--with-extension` /
+  `--with-streamable-http-extension` flags for `goose session`.
+
+Recipes respect the same non-negotiable security rules: non-root at runtime
+(end with `USER goose`), no secrets baked in, no Docker socket, no
+`--privileged`, no mounting of unrelated host paths.
 
 ---
 

@@ -1,9 +1,11 @@
-FROM ghcr.io/aaif-goose/goose:v1.36.0
+FROM ghcr.io/aaif-goose/goose:v1.50.0
 
 USER root
 
 # -------------------------------------------------------------------
-# Basic development / agent tools
+# Base agent tools (common to every sandbox)
+# Toolchains (C/C++, embedded, C#, server...) live in project recipes,
+# not in this base image. See recipes/ for ready-made examples.
 # -------------------------------------------------------------------
 RUN apt-get update && apt-get install -y --no-install-recommends \
     bash \
@@ -17,34 +19,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     tree \
     unzip \
     zip \
-    build-essential \
-    cmake \
-    pkg-config \
     python3 \
     python3-pip \
     python3-venv \
     nodejs \
     npm \
-    gcc \
-    g++ \
-    gdb \
-    gdb-multiarch \
-    make \
-    ninja-build \
-    binutils \
-    gcc-arm-none-eabi \
-    binutils-arm-none-eabi \
-    libnewlib-arm-none-eabi \
-    openocd \
-    picocom \
-    minicom \
-    screen \
-    usbutils \
-    avrdude \
-    gcc-avr \
-    binutils-avr \
-    avr-libc \
-    stlink-tools \
     && rm -rf /var/lib/apt/lists/*
 
 # -------------------------------------------------------------------
