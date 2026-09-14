@@ -40,7 +40,10 @@ project-scoped
 ├── README.md
 ├── goose-sandbox
 ├── recipes/            # recipe templates (c, csharp, server)
-└── sample.env
+├── sample.env
+└── tests/              # bats suite (see tests/README.md)
+    ├── helpers.bash    # mocks docker/git/curl, temp HOME/STATE_DIR
+    └── *.bats          # Tier 1-4 unit + integration tests
 ```
 
 ---
@@ -249,6 +252,7 @@ After changing `goose-sandbox`:
 ```bash
 bash -n goose-sandbox
 shellcheck goose-sandbox
+bats tests/                # run the full suite
 ```
 
 After changing the Dockerfile:
@@ -256,6 +260,13 @@ After changing the Dockerfile:
 ```bash
 docker build -t goose-agent .
 ```
+
+Testing uses [bats](https://bats-core.readthedocs.io/) for unit + mocked
+integration tests. `bats` and `shellcheck` are **dev-only** dependencies —
+never runtime requirements. New logic that is pure (path/string/parsing) gets
+a Tier-1/2 test in `tests/`; logic that shells out to `docker`/`git`/`curl` is
+covered via mocked stubs. See `tests/README.md`. Keep the suite green before
+merging.
 
 Check the setup:
 

@@ -511,6 +511,15 @@ ShellCheck:
 shellcheck goose-sandbox
 ```
 
+Tests (bats — unit + mocked integration):
+
+```bash
+bats tests/
+```
+
+`bats` and `shellcheck` are dev-only dependencies, never runtime requirements.
+See `tests/README.md` for the coverage map and how to add tests.
+
 Build:
 
 ```bash
@@ -523,7 +532,7 @@ Setup check:
 goose-sandbox doctor
 ```
 
-GitHub Actions performs syntax validation, ShellCheck and a Docker build on pushes and pull requests.
+GitHub Actions performs syntax validation, ShellCheck, the bats suite and a Docker build on pushes and pull requests.
 
 ---
 

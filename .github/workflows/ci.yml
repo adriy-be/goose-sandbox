@@ -28,6 +28,16 @@ jobs:
       - name: ShellCheck
         run: shellcheck goose-sandbox
 
+      # Install bats-core and run the test suite (see tests/README.md for the
+      # coverage map and how to add tests).
+      - name: Install bats
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y bats
+
+      - name: Run bats test suite
+        run: bats tests/
+
       - name: Build base image
         run: docker build -t goose-agent .
 
