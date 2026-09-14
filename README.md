@@ -52,21 +52,21 @@ chmod 600 ~/.config/goose-sandbox/.env
 
 Edit the file and add your API key.
 
-### 3. Install launcher
+### 3. Install the launcher
 
 ```bash
-mkdir -p ~/.local/bin
-install -m 755 goose-sandbox ~/.local/bin/goose-sandbox
+./goose-sandbox install
 ```
 
-Make sure `~/.local/bin` is in your `PATH`.
+This copies the launcher to `~/.local/bin`, adds it to your `PATH` in
+`~/.bashrc` / `~/.zshrc` / `~/.profile`, clones this repository into
+`~/.local/share/goose-sandbox` (the managed copy), and builds the base image.
 
-For Bash:
+Open a new shell (or `source ~/.bashrc`) so `~/.local/bin` is on your `PATH`.
 
-```bash
-grep -qxF 'export PATH="$HOME/.local/bin:$PATH"' ~/.bashrc || echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc
-source ~/.bashrc
-```
+Override the target with `goose-sandbox install --dir DIR` or
+`GOOSE_SANDBOX_BIN_DIR`; the managed copy lives in `GOOSE_SANDBOX_HOME`
+(default `~/.local/share/goose-sandbox`).
 
 ### 4. Check setup
 
@@ -80,6 +80,28 @@ Then, from any project:
 cd ~/projects/my-project
 goose-sandbox
 ```
+
+---
+
+## 🛠 Self-management (install / update)
+
+The launcher installs and updates itself — and everything in the repository.
+
+```bash
+goose-sandbox install [--dir DIR]   # install launcher + managed repo + base image
+goose-sandbox update                # pull the repo, reinstall launcher, rebuild base image
+```
+
+`install` places the launcher in `~/.local/bin` (override with `--dir` or
+`GOOSE_SANDBOX_BIN_DIR`) and keeps a git clone of this repository in
+`GOOSE_SANDBOX_HOME` (default `~/.local/share/goose-sandbox`) — the source for
+the `Dockerfile`, recipe templates and `sample.env`.
+
+`update` refreshes that managed copy (`git fetch` + `reset --hard` on `main`,
+or a tarball if git is unavailable), reinstalls the launcher, and rebuilds the
+base image so pinned versions (e.g. the Goose version in the `Dockerfile`) are
+applied. From a development checkout, `update` simply runs `git pull` and
+rebuilds.
 
 ---
 
@@ -316,6 +338,9 @@ GOOSE_SANDBOX_MEMORY
 GOOSE_SANDBOX_PIDS
 GOOSE_SANDBOX_CPUS
 GOOSE_SANDBOX_NETWORK
+GOOSE_SANDBOX_HOME
+GOOSE_SANDBOX_BIN_DIR
+GOOSE_SANDBOX_GLOBAL_SKILLS
 ```
 
 ---

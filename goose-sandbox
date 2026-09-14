@@ -11,28 +11,55 @@ NETWORK="${GOOSE_SANDBOX_NETWORK:-default}"
 STATE_DIR="$WORKSPACE/.goose-sandbox"
 RECIPE="${GOOSE_SANDBOX_RECIPE:-}"
 REBUILD="${GOOSE_SANDBOX_REBUILD:-0}"
+RECIPE_DIR=""
 
-# The base image (FROM ... in a recipe). Built once from this repo's Dockerfile.
+# The base image (FROM ... in a recipe). Built once from the repo Dockerfile.
 BASE_IMAGE="goose-agent"
+
+# --- self-management -----------------------------------------------------
+REPO_URL="${GOOSE_SANDBOX_REPO_URL:-https://github.com/adriy-be/goose-sandbox.git}"
+REPO_BRANCH="${GOOSE_SANDBOX_REPO_BRANCH:-main}"
+TARBALL_URL="${GOOSE_SANDBOX_TARBALL_URL:-https://github.com/adriy-be/goose-sandbox/archive/refs/heads/main.tar.gz}"
+SANDBOX_HOME="${GOOSE_SANDBOX_HOME:-$HOME/.local/share/goose-sandbox}"
+SANDBOX_BIN_DIR="${GOOSE_SANDBOX_BIN_DIR:-}"
+GLOBAL_SKILLS="${GOOSE_SANDBOX_GLOBAL_SKILLS:-$HOME/.config/goose/skills}"
+
+SCRIPT_SRC="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SCRIPT_NAME="$(basename "${BASH_SOURCE[0]}")"
+if [[ -f "$SCRIPT_SRC/Dockerfile" && -d "$SCRIPT_SRC/recipes" && -f "$SCRIPT_SRC/$SCRIPT_NAME" ]]; then
+    DEV_MODE=1
+    TEMPLATES_DIR="$SCRIPT_SRC"
+else
+    DEV_MODE=0
+    TEMPLATES_DIR="$SANDBOX_HOME"
+fi
 
 usage() {
     cat <<'USAGE'
 Usage:
   goose-sandbox [goose session arguments...]
   goose-sandbox doctor
+  goose-sandbox install [--dir DIR]
+  goose-sandbox update
+  goose-sandbox recipe <list|init|add|select|edit|remove> [...]
+  goose-sandbox skills <add|list|remove> [--global] [...]
 
 Launcher settings (host environment):
-  GOOSE_SANDBOX_IMAGE       Docker image (default: goose-agent)
-  GOOSE_SANDBOX_ENV_FILE    Provider env file
-  GOOSE_SANDBOX_WORKSPACE   Workspace to mount (default: $PWD)
-  GOOSE_SANDBOX_MEMORY      Memory limit (default: 8g)
-  GOOSE_SANDBOX_PIDS        PID limit (default: 512)
-  GOOSE_SANDBOX_CPUS        Optional CPU limit, e.g. 4
-  GOOSE_SANDBOX_NETWORK     Docker network; use "none" to disable networking
-  GOOSE_SANDBOX_RECIPE      Project recipe Dockerfile
-                            (default: .goose-sandbox/recipe/Dockerfile
-                             or .goose-sandbox/recipe.dockerfile)
-  GOOSE_SANDBOX_REBUILD     1 to force rebuilding the recipe image
+  GOOSE_SANDBOX_IMAGE            Docker image (default: goose-agent)
+  GOOSE_SANDBOX_ENV_FILE         Provider env file
+  GOOSE_SANDBOX_WORKSPACE        Workspace to mount (default: $PWD)
+  GOOSE_SANDBOX_MEMORY           Memory limit (default: 8g)
+  GOOSE_SANDBOX_PIDS             PID limit (default: 512)
+  GOOSE_SANDBOX_CPUS             Optional CPU limit, e.g. 4
+  GOOSE_SANDBOX_NETWORK          Docker network; use "none" to disable networking
+  GOOSE_SANDBOX_RECIPE           Project recipe Dockerfile
+                                (default: .goose-sandbox/recipe/Dockerfile
+                                 or .goose-sandbox/recipe.dockerfile,
+                                 else .goose-sandbox/recipes/<active>/Dockerfile)
+  GOOSE_SANDBOX_REBUILD          1 to force rebuilding the recipe image
+  GOOSE_SANDBOX_HOME             Managed repo copy (default: ~/.local/share/goose-sandbox)
+  GOOSE_SANDBOX_BIN_DIR          Install dir for the launcher (default: ~/.local/bin)
+  GOOSE_SANDBOX_GLOBAL_SKILLS    Global skills dir (default: ~/.config/goose/skills)
 USAGE
 }
 
@@ -174,10 +201,571 @@ resolve_recipe() {
     fi
 }
 
+# Project-specific recipe image tag. Keyed on the workspace basename AND a
+# content hash of the recipe Dockerfile so that:
+#   - projects with the same folder name but different recipes never collide;
+#   - editing the recipe produces a new tag, so the image is rebuilt
+#     automatically on the next launch (no stale-image reuse).
+project_tag() {
+    local slug fp
+    slug="$(basename "$WORKSPACE" | tr '[:upper:]' '[:lower:]' | tr -c 'a-z0-9._-' '-')"
+    fp="$(cksum < "$RECIPE" | awk '{print $1}')"
+    printf 'goose-agent:%s-%s\n' "$slug" "$fp"
+}
+
+# --- install / update ----------------------------------------------------
+ensure_path() {
+    local dir="$1"
+
+    # Already on the current PATH: nothing to configure.
+    case ":$PATH:" in
+        *":$dir:"*) return 0 ;;
+    esac
+
+    local rcfile="$HOME/.bashrc"
+    if [[ -f "$HOME/.zshrc" && ! -f "$HOME/.bashrc" ]]; then
+        rcfile="$HOME/.zshrc"
+    elif [[ ! -f "$HOME/.bashrc" && ! -f "$HOME/.zshrc" && -f "$HOME/.profile" ]]; then
+        rcfile="$HOME/.profile"
+    fi
+
+    # Already referenced in the chosen rc file (any form).
+    if [[ -f "$rcfile" ]] && grep -qF "$dir" "$rcfile"; then
+        return 0
+    fi
+
+    printf '%s\n' "export PATH=\"$dir:\$PATH\"" >> "$rcfile"
+    ok "Added $dir to PATH in $rcfile"
+}
+
+ensure_managed_repo() {
+    if [[ -d "$SANDBOX_HOME/.git" && -f "$SANDBOX_HOME/goose-sandbox" ]]; then
+        ok "Managed repo present: $SANDBOX_HOME"
+        return 0
+    fi
+
+    mkdir -p "$SANDBOX_HOME"
+
+    if [[ -n "$(ls -A "$SANDBOX_HOME" 2>/dev/null)" && ! -f "$SANDBOX_HOME/goose-sandbox" ]]; then
+        fail "Directory exists and does not look like a goose-sandbox copy: $SANDBOX_HOME"
+        fail "Move it away or set GOOSE_SANDBOX_HOME to another location"
+        return 1
+    fi
+
+    if [[ "$DEV_MODE" == "1" ]]; then
+        ok "Copying repository into: $SANDBOX_HOME"
+        cp -a "$SCRIPT_SRC/." "$SANDBOX_HOME/"
+        rm -rf "$SANDBOX_HOME/.goose-sandbox" 2>/dev/null || true
+    elif command -v git >/dev/null 2>&1; then
+        ok "Cloning repository into: $SANDBOX_HOME"
+        if ! git clone --depth 1 --branch "$REPO_BRANCH" "$REPO_URL" "$SANDBOX_HOME" 2>/dev/null; then
+            git clone --depth 1 "$REPO_URL" "$SANDBOX_HOME"
+        fi
+    else
+        fail "git not found; cannot create the managed copy in $SANDBOX_HOME"
+        return 1
+    fi
+}
+
+cmd_install() {
+    local dir="${SANDBOX_BIN_DIR:-$HOME/.local/bin}"
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --dir)
+                [[ $# -ge 2 ]] || { fail "--dir needs a value"; return 1; }
+                dir="$2"
+                shift 2
+                ;;
+            -h|--help|help)
+                usage
+                return 0
+                ;;
+            *)
+                fail "Unknown install argument: $1"
+                usage
+                return 1
+                ;;
+        esac
+    done
+
+    ok "Installing launcher into: $dir"
+    mkdir -p "$dir"
+    if [[ ! -w "$dir" ]]; then
+        fail "Directory not writable: $dir"
+        return 1
+    fi
+    install -m 755 "$SCRIPT_SRC/$SCRIPT_NAME" "$dir/$SCRIPT_NAME"
+    ok "Launcher installed: $dir/$SCRIPT_NAME"
+
+    ensure_path "$dir"
+    ensure_managed_repo
+
+    if command -v docker >/dev/null 2>&1; then
+        ok "Building base image: $BASE_IMAGE"
+        docker build -t "$BASE_IMAGE" "$SANDBOX_HOME"
+    else
+        warn "Docker not found; skip base image build (run 'docker build -t $BASE_IMAGE .' in $SANDBOX_HOME)"
+    fi
+
+    printf '\nInstalled.\n'
+    printf 'Open a new shell (or: source ~/.bashrc) so PATH picks up %s.\n' "$dir"
+    printf 'Check the setup with: %s doctor\n' "$dir/$SCRIPT_NAME"
+}
+
+cmd_update() {
+    local home_src="$SANDBOX_HOME"
+
+    if [[ "$DEV_MODE" == "1" ]]; then
+        ok "Development checkout; pulling latest in $SCRIPT_SRC"
+        (cd "$SCRIPT_SRC" && git pull --ff-only) || {
+            fail "git pull failed in $SCRIPT_SRC"
+            return 1
+        }
+        home_src="$SCRIPT_SRC"
+    else
+        if [[ ! -d "$SANDBOX_HOME" ]]; then
+            fail "Not installed (managed repo missing: $SANDBOX_HOME)"
+            fail "Run: $SCRIPT_NAME install"
+            return 1
+        fi
+
+        ok "Updating managed repo: $SANDBOX_HOME"
+        if [[ -d "$SANDBOX_HOME/.git" ]] && command -v git >/dev/null 2>&1; then
+            (cd "$SANDBOX_HOME" && git fetch origin "$REPO_BRANCH" && git reset --hard "origin/$REPO_BRANCH") || {
+                fail "git update failed in $SANDBOX_HOME"
+                return 1
+            }
+        elif command -v curl >/dev/null 2>&1; then
+            ok "Downloading repository tarball"
+            find "$SANDBOX_HOME" -mindepth 1 -maxdepth 1 ! -name '.git' -exec rm -rf {} + 2>/dev/null || true
+            curl -fsSL "$TARBALL_URL" | tar -xz --strip-components=1 -C "$SANDBOX_HOME" || {
+                fail "tarball download failed"
+                return 1
+            }
+        else
+            fail "Neither git nor curl available to update"
+            return 1
+        fi
+    fi
+
+    local bin_dir="$SANDBOX_BIN_DIR"
+    local do_reinstall=1
+    if [[ "$DEV_MODE" == "1" && -z "$bin_dir" ]]; then
+        do_reinstall=0
+    fi
+
+    if [[ "$do_reinstall" == "1" ]]; then
+        if [[ -z "$bin_dir" ]]; then
+            if [[ "$SCRIPT_SRC" != "$SANDBOX_HOME" && -w "$SCRIPT_SRC" && -f "$SCRIPT_SRC/$SCRIPT_NAME" ]]; then
+                bin_dir="$SCRIPT_SRC"
+            else
+                bin_dir="$HOME/.local/bin"
+            fi
+        fi
+        mkdir -p "$bin_dir"
+        install -m 755 "$home_src/$SCRIPT_NAME" "$bin_dir/$SCRIPT_NAME"
+        ok "Launcher updated: $bin_dir/$SCRIPT_NAME"
+    fi
+
+    if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
+        ok "Rebuilding base image: $BASE_IMAGE"
+        docker build -t "$BASE_IMAGE" "$home_src"
+    else
+        warn "Docker not reachable; skipped base image rebuild (run 'docker build -t $BASE_IMAGE .' in $home_src)"
+    fi
+
+    printf '\nUpdate complete.\n'
+}
+
+# --- recipes -------------------------------------------------------------
+recipe_usage() {
+    cat <<'USAGE'
+Usage:
+  goose-sandbox recipe list
+  goose-sandbox recipe init [name] [--force]
+  goose-sandbox recipe add <template> [--as <name>] [--no-select] [--force]
+  goose-sandbox recipe select <name>
+  goose-sandbox recipe edit [name]
+  goose-sandbox recipe remove <name> [--image]
+
+Templates: c, csharp, server, example
+Recipes live in <project>/.goose-sandbox/recipes/<name>/; the active one is
+recorded in <project>/.goose-sandbox/recipes/.active.
+USAGE
+}
+
+validate_recipe_name() {
+    local name="$1"
+    if [[ -z "$name" || ! "$name" =~ ^[A-Za-z0-9._-]+$ ]]; then
+        fail "Invalid recipe name: '$name' (allowed: letters, digits, . _ -)"
+        return 1
+    fi
+}
+
+recipe_show_paths() {
+    local name="$1"
+    printf '  Dockerfile: %s/Dockerfile\n' "$STATE_DIR/recipes/$name"
+    printf '  skills/:    %s/skills/\n' "$STATE_DIR/recipes/$name"
+    printf '  mcp.txt:    %s/mcp.txt\n' "$STATE_DIR/recipes/$name"
+}
+
+active_recipe_name() {
+    if [[ -f "$STATE_DIR/recipes/.active" ]]; then
+        local a
+        a="$(cat "$STATE_DIR/recipes/.active" 2>/dev/null || true)"
+        if [[ -n "$a" && -f "$STATE_DIR/recipes/$a/Dockerfile" ]]; then
+            printf '%s\n' "$a"
+            return 0
+        fi
+    fi
+    fail "No active recipe selected"
+    return 1
+}
+
+recipe_template_names() {
+    local t="$TEMPLATES_DIR/recipes"
+    local out=""
+    if [[ -d "$t" ]]; then
+        while IFS= read -r d; do
+            out="$out $(basename "$d")"
+        done < <(find "$t" -maxdepth 1 -mindepth 1 -type d ! -name '.*' | sort)
+        while IFS= read -r f; do
+            out="$out $(basename "$f" .dockerfile)"
+        done < <(find "$t" -maxdepth 1 -type f -name '*.dockerfile' ! -name '.*' | sort)
+    fi
+    printf '%s\n' "$out"
+}
+
+recipe_list() {
+    printf 'Built-in templates:\n'
+    if [[ -d "$TEMPLATES_DIR/recipes" ]]; then
+        local names
+        names="$(recipe_template_names)"
+        if [[ -n "$names" ]]; then
+            printf ' %s\n' "$names"
+        else
+            printf '  (none found)\n'
+        fi
+    else
+        printf '  (none — run "%s install" first)\n' "$SCRIPT_NAME"
+    fi
+
+    printf '\nLocal recipes (%s):\n' "$STATE_DIR/recipes"
+    local active=""
+    if [[ -f "$STATE_DIR/recipes/.active" ]]; then
+        active="$(cat "$STATE_DIR/recipes/.active" 2>/dev/null || true)"
+    fi
+    if [[ -d "$STATE_DIR/recipes" ]]; then
+        local any=0
+        while IFS= read -r d; do
+            local name
+            name="$(basename "$d")"
+            if [[ "$name" == "$active" ]]; then
+                printf '  %s  (active)\n' "$name"
+            else
+                printf '  %s\n' "$name"
+            fi
+            any=1
+        done < <(find "$STATE_DIR/recipes" -maxdepth 1 -mindepth 1 -type d ! -name '.*' | sort)
+        if [[ "$any" == "0" ]]; then
+            printf '  (none)\n'
+        fi
+    else
+        printf '  (none)\n'
+    fi
+}
+
+recipe_init() {
+    local name="" force=0
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --force) force=1; shift ;;
+            -h|--help) recipe_usage; return 0 ;;
+            *) name="$1"; shift ;;
+        esac
+    done
+    [[ -n "$name" ]] || name="default"
+    validate_recipe_name "$name" || return 1
+
+    local dest="$STATE_DIR/recipes/$name"
+    if [[ -e "$dest" && "$force" == "0" ]]; then
+        fail "Recipe already exists: $name (use --force to overwrite)"
+        return 1
+    fi
+
+    rm -rf "$dest"
+    mkdir -p "$dest/skills"
+    cat > "$dest/Dockerfile" <<'EOF'
+FROM goose-agent
+
+USER root
+
+# Project toolchain — add your tools here, then switch back to goose.
+# RUN apt-get update && apt-get install -y --no-install-recommends ...
+
+USER goose
+WORKDIR /workspace
+EOF
+    touch "$dest/mcp.txt"
+    printf '%s\n' "$name" > "$STATE_DIR/recipes/.active"
+    ok "Recipe created and selected: $name"
+    recipe_show_paths "$name"
+}
+
+recipe_add() {
+    local template="" name="" select=1 force=0
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --as)
+                [[ $# -ge 2 ]] || { fail "--as needs a value"; return 1; }
+                name="$2"
+                shift 2
+                ;;
+            --no-select) select=0; shift ;;
+            --force) force=1; shift ;;
+            -h|--help) recipe_usage; return 0 ;;
+            *) template="$1"; shift ;;
+        esac
+    done
+
+    [[ -n "$template" ]] || { fail "Missing template"; recipe_usage; return 1; }
+    [[ -n "$name" ]] || name="$template"
+    validate_recipe_name "$name" || return 1
+
+    local dest="$STATE_DIR/recipes/$name"
+    if [[ -e "$dest" && "$force" == "0" ]]; then
+        fail "Recipe already exists: $name (use --force to overwrite)"
+        return 1
+    fi
+
+    local src="$TEMPLATES_DIR/recipes/$template"
+    if [[ -f "$src.dockerfile" ]]; then
+        rm -rf "$dest"
+        mkdir -p "$dest/skills"
+        cp "$src.dockerfile" "$dest/Dockerfile"
+        touch "$dest/mcp.txt"
+    elif [[ -d "$src" && -f "$src/Dockerfile" ]]; then
+        rm -rf "$dest"
+        mkdir -p "$dest"
+        cp -R "$src/." "$dest/"
+        mkdir -p "$dest/skills"
+        [[ -f "$dest/mcp.txt" ]] || touch "$dest/mcp.txt"
+    else
+        local avail
+        avail="$(recipe_template_names)"
+        fail "Unknown template: $template"
+        fail "Available: $avail"
+        return 1
+    fi
+
+    if [[ "$select" == "1" ]]; then
+        printf '%s\n' "$name" > "$STATE_DIR/recipes/.active"
+        ok "Recipe added and selected: $name"
+    else
+        ok "Recipe added: $name (not selected)"
+    fi
+    recipe_show_paths "$name"
+}
+
+recipe_select() {
+    local name="${1:-}"
+    [[ -n "$name" ]] || { fail "Missing recipe name"; recipe_usage; return 1; }
+    validate_recipe_name "$name" || return 1
+    if [[ ! -f "$STATE_DIR/recipes/$name/Dockerfile" ]]; then
+        fail "Unknown local recipe: $name"
+        return 1
+    fi
+    printf '%s\n' "$name" > "$STATE_DIR/recipes/.active"
+    ok "Active recipe: $name"
+}
+
+recipe_edit() {
+    local name="${1:-}"
+    if [[ -z "$name" ]]; then
+        name="$(active_recipe_name)" || return 1
+    fi
+    validate_recipe_name "$name" || return 1
+
+    local dir="$STATE_DIR/recipes/$name"
+    if [[ ! -f "$dir/Dockerfile" ]]; then
+        fail "Unknown local recipe: $name"
+        return 1
+    fi
+    [[ -f "$dir/mcp.txt" ]] || touch "$dir/mcp.txt"
+
+    local editor="${EDITOR:-vi}"
+    ok "Editing recipe $name with $editor"
+    "$editor" "$dir/Dockerfile"
+    "$editor" "$dir/mcp.txt"
+}
+
+recipe_remove() {
+    local name="" remove_image=0
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --image) remove_image=1; shift ;;
+            -h|--help) recipe_usage; return 0 ;;
+            *) name="$1"; shift ;;
+        esac
+    done
+
+    [[ -n "$name" ]] || { fail "Missing recipe name"; recipe_usage; return 1; }
+    validate_recipe_name "$name" || return 1
+
+    local dir="$STATE_DIR/recipes/$name"
+    if [[ ! -d "$dir" ]]; then
+        fail "Unknown local recipe: $name"
+        return 1
+    fi
+
+    if [[ "$remove_image" == "1" ]] && command -v docker >/dev/null 2>&1; then
+        local slug line tags=()
+        slug="$(basename "$WORKSPACE" | tr '[:upper:]' '[:lower:]' | tr -c 'a-z0-9._-' '-')"
+        while IFS= read -r line; do
+            [[ -n "$line" ]] && tags+=("$line")
+        done < <(docker images --format '{{.Repository}}:{{.Tag}}' | \
+            awk -F: -v s="$slug-" '$1=="goose-agent" && index($2,s)==1 {print $1":"$2}')
+        if [[ "${#tags[@]}" -eq 0 ]]; then
+            warn "No project image found: goose-agent:$slug-*"
+        else
+            ok "Removing image(s): ${tags[*]}"
+            docker rmi "${tags[@]}" >/dev/null 2>&1 || warn "Some images could not be removed"
+        fi
+    fi
+
+    rm -rf "$dir"
+
+    local active=""
+    if [[ -f "$STATE_DIR/recipes/.active" ]]; then
+        active="$(cat "$STATE_DIR/recipes/.active" 2>/dev/null || true)"
+    fi
+    if [[ "$active" == "$name" ]]; then
+        rm -f "$STATE_DIR/recipes/.active"
+        warn "Removed the active recipe; selection cleared"
+    fi
+    ok "Recipe removed: $name"
+}
+
+cmd_recipe() {
+    check_workspace || return 1
+    ensure_state_dir
+
+    local sub="${1:-}"
+    shift || true
+    case "$sub" in
+        list) recipe_list ;;
+        init) recipe_init "$@" ;;
+        add) recipe_add "$@" ;;
+        select) recipe_select "$@" ;;
+        edit) recipe_edit "$@" ;;
+        remove) recipe_remove "$@" ;;
+        -h|--help|help) recipe_usage ;;
+        "")
+            fail "Missing recipe subcommand"
+            recipe_usage
+            return 1
+            ;;
+        *)
+            fail "Unknown recipe subcommand: $sub"
+            recipe_usage
+            return 1
+            ;;
+    esac
+}
+
+# --- skills (vercel-labs/skills) ----------------------------------------
+skills_usage() {
+    cat <<'USAGE'
+Usage:
+  goose-sandbox skills add <source> [--global] [skills CLI args...]
+  goose-sandbox skills list [--global]
+  goose-sandbox skills remove <name> [--global] [skills CLI args...]
+
+Skills are managed with the vercel-labs/skills CLI (npx skills ... --agent goose).
+Local (default) skills are installed by the skills CLI into the project
+(inside /workspace) and are visible to goose in the sandbox.
+Global skills (-g) go to ~/.config/goose/skills/ and are mounted into the
+sandbox at the goose global skills path.
+USAGE
+}
+
+skills_run() {
+    local sub="$1"
+    shift
+    [[ "$sub" == "ls" ]] && sub="list"
+    [[ "$sub" == "rm" ]] && sub="remove"
+
+    if ! command -v npx >/dev/null 2>&1; then
+        fail "npx (Node.js) not found on the host — required to manage skills"
+        return 1
+    fi
+
+    local global=0
+    local args=()
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --global|-g) global=1; shift ;;
+            *) args+=("$1"); shift ;;
+        esac
+    done
+
+    local npx_args=(skills "$sub")
+    npx_args+=("${args[@]}")
+    npx_args+=(--agent goose)
+    if [[ "$global" == "1" ]]; then
+        npx_args+=(-g)
+        mkdir -p "$GLOBAL_SKILLS"
+    fi
+
+    ok "npx ${npx_args[*]}"
+    (cd "$WORKSPACE" && npx "${npx_args[@]}")
+}
+
+cmd_skills() {
+    local sub="${1:-}"
+    shift || true
+    case "$sub" in
+        add|list|ls|remove|rm) skills_run "$sub" "$@" ;;
+        -h|--help|help) skills_usage ;;
+        "")
+            fail "Missing skills subcommand"
+            skills_usage
+            return 1
+            ;;
+        *)
+            fail "Unknown skills subcommand: $sub"
+            skills_usage
+            return 1
+            ;;
+    esac
+}
+
+# --- dispatch ------------------------------------------------------------
 case "${1:-}" in
     doctor)
         resolve_recipe
         doctor
+        exit $?
+        ;;
+    install)
+        shift
+        cmd_install "$@"
+        exit $?
+        ;;
+    update)
+        shift
+        cmd_update
+        exit $?
+        ;;
+    recipe)
+        shift
+        cmd_recipe "$@"
+        exit $?
+        ;;
+    skills)
+        shift
+        cmd_skills "$@"
         exit $?
         ;;
     -h|--help|help)
@@ -186,6 +774,7 @@ case "${1:-}" in
         ;;
 esac
 
+# --- default: run a goose session ---------------------------------------
 check_workspace || exit 1
 
 if [[ ! -f "$ENV_FILE" ]]; then

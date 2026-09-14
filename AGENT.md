@@ -184,6 +184,22 @@ Recipes respect the same non-negotiable security rules: non-root at runtime
 (end with `USER goose`), no secrets baked in, no Docker socket, no
 `--privileged`, no mounting of unrelated host paths.
 
+## 🛠 Self-management and skills
+
+The launcher can install and update itself (`goose-sandbox install`,
+`goose-sandbox update`). `install` copies the launcher to `~/.local/bin`
+(or `--dir` / `GOOSE_SANDBOX_BIN_DIR`), adds it to the shell `PATH`, and keeps
+a git clone of this repository in `GOOSE_SANDBOX_HOME` (default
+`~/.local/share/goose-sandbox`). `update` refreshes that managed copy,
+reinstalls the launcher and rebuilds the base image.
+
+Skills are managed with the vercel-labs/skills CLI (`npx skills ... --agent
+goose`): `goose-sandbox skills add|list|remove [--global]`. Local (default)
+installs go into the project (visible inside `/workspace`); global installs go
+to `~/.config/goose/skills` (mounted at `/home/goose/.agents/skills`). The
+launcher must keep `.goose-sandbox/` git-ignored; `.goose/skills` /
+`.agents/skills` created by `skills add` in the project may be committed.
+
 ---
 
 ## 🌐 Network
