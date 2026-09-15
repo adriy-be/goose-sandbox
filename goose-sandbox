@@ -232,15 +232,59 @@ resolve_recipe() {
     fi
 }
 
+# Hash stdin and print a bare hex digest. Requires a cryptographic hash tool
+# (present on Linux/macOS/WSL); fails loudly otherwise rather than silently
+# falling back to a weak, collision-prone checksum.
+sha256_hash() {
+    if command -v sha256sum >/dev/null 2>&1; then
+        sha256sum | awk '{print $1}'
+    elif command -v shasum >/dev/null 2>&1; then
+        shasum -a 256 | awk '{print $1}'
+    elif command -v openssl >/dev/null 2>&1; then
+        openssl dgst -sha256 | awk -F'= ' '{print $2}'
+    else
+        fail "No cryptographic hash tool (sha256sum/shasum/openssl) available; cannot compute the recipe image tag"
+        return 1
+    fi
+}
+
+# Cryptographic digest of the complete recipe build context (the directory
+# docker uses as the build context for the recipe image). Covers every file
+# under $RECIPE_DIR — the Dockerfile plus any COPY/ADD sources — so editing any
+# of them invalidates the cache. Relative paths keep the digest deterministic
+# and path-independent: identical recipes at different locations hash equal
+# (compatible reuse) while any content difference produces a distinct tag.
+#
+# Note: this hashes every file in the context directory and does not parse a
+# `.dockerignore`; anything docker could COPY counts, so no stale build input is
+# missed. To avoid unrelated files in a directory triggering rebuilds, keep each
+# recipe in its own directory (the default managed layout already does this)
+# rather than pointing at a lone Dockerfile in a larger, frequently-changing
+# directory.
+recipe_context_hash() {
+    local ctx="${RECIPE_DIR:-}"
+    if [[ -z "$ctx" || ! -d "$ctx" ]]; then
+        sha256_hash < "$RECIPE"
+        return 0
+    fi
+    (
+        cd "$ctx" || exit 1
+        find . -type f ! -path './.git/*' -print0 2>/dev/null \
+            | sort -z \
+            | xargs -0 sha256sum
+    ) | sha256_hash
+}
+
 # Project-specific recipe image tag. Keyed on the workspace basename AND a
-# content hash of the recipe Dockerfile so that:
+# cryptographic content hash of the complete recipe build context so that:
 #   - projects with the same folder name but different recipes never collide;
-#   - editing the recipe produces a new tag, so the image is rebuilt
-#     automatically on the next launch (no stale-image reuse).
+#   - editing the recipe (Dockerfile or any copied file) produces a new tag,
+#     so the image is rebuilt automatically on the next launch
+#     (no stale-image reuse).
 project_tag() {
     local slug fp
     slug="$(basename "$WORKSPACE" | tr '[:upper:]' '[:lower:]' | tr -c 'a-z0-9._-' '-')"
-    fp="$(cksum < "$RECIPE" | awk '{print $1}')"
+    fp="$(recipe_context_hash | cut -c1-16)"
     printf 'goose-agent:%s-%s\n' "$slug" "$fp"
 }
 

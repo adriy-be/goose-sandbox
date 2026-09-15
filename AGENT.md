@@ -184,9 +184,14 @@ The launcher `goose-sandbox`:
 - detects the active recipe (`GOOSE_SANDBOX_RECIPE`, `recipe.dockerfile`,
   `recipe/Dockerfile`, then `.goose-sandbox/recipes/<active>/Dockerfile`);
 - builds `goose-agent:<project>-<content-hash>` from the base + recipe, where the
-  hash is derived from the recipe `Dockerfile` — so projects with the same name
-  don't collide and editing the recipe triggers an automatic rebuild
-  (`GOOSE_SANDBOX_REBUILD=1` forces a rebuild; `GOOSE_SANDBOX_IMAGE` skips it);
+  hash is a cryptographic digest of the complete recipe build context (the
+  `Dockerfile` plus every file in the recipe directory, e.g. `COPY`/`ADD`
+  sources) — so projects with the same name don't collide and editing the
+  recipe (or any file it builds from) triggers an automatic rebuild
+  (`GOOSE_SANDBOX_REBUILD=1` forces a rebuild; `GOOSE_SANDBOX_IMAGE` skips it).
+  The hash covers every file in the recipe directory and does not parse a
+  `.dockerignore`, so keep each recipe in its own directory (the managed layout
+  already does) so unrelated files don't trigger spurious rebuilds;
 - **mounts** global skills (`~/.config/goose/skills`) over the goose global
   skills path (`/home/goose/.agents/skills`) and mounts the recipe `skills/`
   (or `.goose-sandbox/skills/` without a recipe) over the goose

@@ -235,10 +235,15 @@ sandbox persists via the `/goose-state` mount (`config/config.yaml`).
 
 ### Building & overriding
 
-The recipe image is tagged `goose-agent:<project>-<content-hash>`. The hash
-comes from the recipe `Dockerfile`, so two projects sharing a folder name never
-collide, and **editing the recipe automatically rebuilds** on the next launch
-(a changed `Dockerfile` produces a new tag).
+The recipe image is tagged `goose-agent:<project>-<content-hash>`. The hash is a
+cryptographic digest of the complete recipe build context — the `Dockerfile`
+plus every file in the recipe directory (such as `COPY`/`ADD` sources) — so two
+projects sharing a folder name never collide, and **editing the recipe
+automatically rebuilds** on the next launch (any changed build-context file
+produces a new tag, so stale images are never reused). The hash covers every
+file in the recipe directory and does not parse a `.dockerignore`; keep each
+recipe in its own directory (the managed layout already does) so unrelated
+files don't trigger spurious rebuilds.
 
 ```bash
 goose-sandbox            # builds the recipe image (auto-rebuild if recipe changed)
