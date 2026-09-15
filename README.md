@@ -1,10 +1,9 @@
 # 🪿 Goose Sandbox
 
-Run **Goose inside Docker** with access limited to the project you choose — an
-isolated, reproducible workspace for the
-[Goose](https://github.com/aaif-goose/goose) CLI agent. Per-project toolchains
-(recipes), skills, MCP servers and persistent chat history are supported out of
-the box, while the rest of your machine stays untouched.
+Run **Goose safely inside Docker**, with access limited to the project you choose.
+
+[Goose](https://github.com/aaif-goose/goose) gets an isolated, reproducible workspace without access to the rest of your system. Each project can have its own toolchains (recipes), skills, MCP servers, and persistent chat history — supported out of the box.
+
 
 ```text
 Your PC
