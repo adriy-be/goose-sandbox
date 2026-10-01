@@ -50,7 +50,7 @@ goose-sandbox
 ```
 
 This copies the launcher to `~/.local/bin`, adds it to your `PATH` in
-`~/.bashrc` / `~/.zshrc` / `~/.profile`, clones this repository into
+`~/.bashrc` / `~/.zshrc` / `~/.profile`, clones the latest tagged release into
 `~/.local/share/goose-sandbox` (the managed copy), and builds the base image.
 
 Open a new shell (or `source ~/.bashrc`) so `~/.local/bin` is on your `PATH`.
@@ -104,7 +104,8 @@ name are passed through to `goose session`.
 | `goose-sandbox` | Launch a Goose session for the current directory |
 | `goose-sandbox doctor` | Check Docker, env file, workspace, image and skills |
 | `goose-sandbox install [--dir DIR]` | Install launcher, managed repo and base image |
-| `goose-sandbox update` | Update launcher, managed repo and base image |
+| `goose-sandbox update [--release TAG \| --edge]` | Update launcher, managed repo and base image |
+| `goose-sandbox version` | Show the installed version and channel |
 | `goose-sandbox recipe list\|init\|add\|select\|edit\|remove` | Manage per-project toolchains |
 | `goose-sandbox skills add\|list\|remove [--global]` | Manage skills (requires npx) |
 
@@ -120,15 +121,27 @@ goose-sandbox update                # pull the repo, reinstall launcher, rebuild
 ```
 
 `install` places the launcher in `~/.local/bin` (override with `--dir` or
-`GOOSE_SANDBOX_BIN_DIR`) and keeps a git clone of this repository in
-`GOOSE_SANDBOX_HOME` (default `~/.local/share/goose-sandbox`) — the source for
-the `Dockerfile`, recipe templates and `sample.env`.
+`GOOSE_SANDBOX_BIN_DIR`) and keeps a git clone of the current tagged release
+in `GOOSE_SANDBOX_HOME` (default `~/.local/share/goose-sandbox`) — the source
+for the `Dockerfile`, recipe templates and `sample.env`.
 
-`update` refreshes that managed copy (`git fetch` + `reset --hard` on `main`,
-or a tarball if git is unavailable), reinstalls the launcher, and rebuilds the
-base image so pinned versions (e.g. the Goose version in the `Dockerfile`) are
-applied. From a development checkout, `update` simply runs `git pull` and
-rebuilds.
+### Update channels
+
+- **Release channel (default, stable):** `update` installs a versioned tagged
+  release. The tag is resolved at runtime — the latest GitHub release, or the
+  highest `v*` tag if no release exists — and can be pinned with
+  `GOOSE_SANDBOX_RELEASE` or `update --release <tag>` (also used to roll back
+  to a previous version).
+- **Edge/development channel (explicit):** `GOOSE_SANDBOX_CHANNEL=main` (or
+  `update --edge`) tracks the `main` branch (`git fetch` + `reset --hard` on
+  `main`, or a tarball if git is unavailable).
+- **Development checkout:** running from this repo, `update` simply runs
+  `git pull` and rebuilds.
+
+Every install/update records the version and channel in
+`$GOOSE_SANDBOX_HOME/.version`; `goose-sandbox version` prints it, and
+reinstalling any earlier tag (e.g. `goose-sandbox update --release v1.0.0`)
+rolls the installation back to that release.
 
 ---
 
