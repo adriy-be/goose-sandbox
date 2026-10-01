@@ -1,6 +1,6 @@
 # 🪿 Goose Sandbox
 
-Run **Goose safely inside Docker**, with access limited to the project you choose.
+Run **Goose in a project-scoped Docker sandbox**, with access limited to the project you choose.
 
 [Goose](https://github.com/aaif-goose/goose) gets an isolated, reproducible workspace without access to the rest of your system. Each project can have its own toolchains (recipes), skills, MCP servers, and persistent chat history — supported out of the box.
 
@@ -364,6 +364,53 @@ Project files              ✅ read/write by the agent
 
 Do not run untrusted hostile code and assume Docker alone makes it harmless.
 
+### Threat Model
+
+This sandbox protects your host filesystem and processes from the agent, but
+does **not** fully isolate the agent from itself or from malicious workspace
+content.
+
+**Protected from the agent:**
+- Unrelated host directories (not mounted)
+- Docker socket (not mounted)
+- Host processes and kernel (namespace isolation)
+- Elevated Linux privileges (capabilities dropped, non-root user)
+
+**Exposed to the agent:**
+- The mounted project directory (read/write)
+- Goose persistent state (`/goose-state`)
+- Environment variables including LLM credentials
+- Container filesystem and tools
+- Network (when enabled) — see [Network isolation](#-network-isolation)
+
+**Key risk — credential exfiltration:**
+When the container has network access, the agent can read its own environment
+variables (including API keys) and send them to any remote server. A malicious
+or prompt-injected workspace file could instruct the agent to exfiltrate
+credentials. The sandbox does not prevent this.
+
+To mitigate: use `GOOSE_SANDBOX_NETWORK=none` with a local model, or assume
+credentials will be exposed when the container is networked.
+
+### Sandbox Security Boundary
+
+The security boundary is defined by Docker's namespace and cgroup isolation:
+
+| Layer | Isolation |
+| --- | --- |
+| Filesystem | Only `/workspace` (project) and `/goose-state` are mounted |
+| User | Container process runs as `goose` (non-root, UID 1000) |
+| Capabilities | All Linux capabilities dropped (`--cap-drop=ALL`) |
+| Privileges | `--security-opt=no-new-privileges:true` |
+| PIDs | Limited to 512 processes (`--pids-limit=512`) |
+| Memory | Limited to 8GB by default (`--memory=8g`) |
+| Init | Tini init process included |
+
+What the boundary **does not** provide:
+- VM-level isolation (shares the host kernel)
+- Credential isolation (env vars are visible to the agent)
+- Network isolation by default (container has full network access)
+
 ### Never mount the Docker socket
 
 Do **not** add:
@@ -380,7 +427,16 @@ That would let the container control the host Docker daemon and largely defeat t
 
 Remote providers such as DeepInfra need network access, so normal Docker networking stays enabled by default.
 
-For a local/offline provider:
+When the container has network access, the agent can reach any network endpoint.
+This is necessary for remote LLM providers but means:
+
+- The agent can send credentials (from environment variables) to any server
+- The agent can upload project files to any server
+- Tools and recipes can download packages from the internet
+
+### Disabling network access
+
+For a local/offline provider, or when credential safety is critical:
 
 ```bash
 GOOSE_SANDBOX_NETWORK=none goose-sandbox
@@ -392,11 +448,33 @@ This adds:
 --network=none
 ```
 
+preventing all network traffic from the container.
+
+### Trade-offs
+
+| With network (default) | Without network (`none`) |
+| --- | --- |
+| ✅ Remote LLM providers work | ❌ Remote LLM providers unreachable |
+| ✅ Tools can download packages | ❌ Tools cannot download packages |
+| ✅ Remote MCP servers work | ❌ Remote MCP servers unreachable |
+| ⚠️ Credentials can be exfiltrated | ✅ Credentials safe from exfiltration |
+| ⚠️ Files can be uploaded | ✅ Files cannot be uploaded |
+
+**When to use `--network=none`:**
+- Running with a local/offline LLM model
+- Processing sensitive files where data leakage matters
+- Running untrusted agent instructions where credential safety is critical
+
+### Custom network
+
 You can also select another existing Docker network:
 
 ```bash
 GOOSE_SANDBOX_NETWORK=my-network goose-sandbox
 ```
+
+Note: `GOOSE_SANDBOX_NETWORK=host` gives the container the host's full network
+stack, which reduces isolation.
 
 ---
 
