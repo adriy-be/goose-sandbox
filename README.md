@@ -582,11 +582,20 @@ Change the model without rebuilding the image.
 ├── Dockerfile
 ├── LICENSE
 ├── README.md
-├── goose-sandbox
+├── goose-sandbox              # thin Bash dispatcher
+├── lib/
+│   ├── config.sh              # env defaults, helpers, path/state management
+│   ├── install.sh             # self-installation
+│   ├── update.sh              # self-update, version tracking
+│   ├── recipe.sh              # recipe CRUD
+│   ├── skills.sh              # skills management
+│   └── doctor.sh              # health check
 ├── recipes/
 │   ├── c.dockerfile
 │   ├── csharp.dockerfile
 │   └── server.dockerfile
+├── tests/
+│   └── ...                    # bats test suite
 └── sample.env
 ```
 
@@ -603,7 +612,7 @@ bash -n goose-sandbox
 ShellCheck:
 
 ```bash
-shellcheck goose-sandbox
+shellcheck goose-sandbox lib/*.sh
 ```
 
 Tests (bats — unit + mocked integration):

@@ -32,7 +32,7 @@ brew install shellcheck
 
 ```bash
 bash -n goose-sandbox        # syntax
-shellcheck goose-sandbox     # static analysis (optional)
+shellcheck goose-sandbox lib/*.sh     # static analysis (optional)
 bats tests/                  # full suite
 bats tests/tags.bats         # single file
 bats --filter "cmd_install" tests/   # by test name

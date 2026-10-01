@@ -45,10 +45,13 @@ sandbox_up() {
 sandbox_up_nondev() {
     env_up
     local bare="$TEST_ROOT/bare"
-    mkdir -p "$bare"
-    cp "$SCRIPT_PATH" "$bare/goose-sandbox"
+    mkdir -p "$bare/goose-sandbox"
+    # Copy only the launcher and lib/ modules, not Dockerfile/recipes,
+    # so DEV_MODE is 0 (non-dev mode).
+    cp -a "$SCRIPT_PATH" "$bare/goose-sandbox/goose-sandbox"
+    cp -a "$(dirname "$SCRIPT_PATH")/lib" "$bare/goose-sandbox/lib"
     # shellcheck disable=SC1090
-    source "$bare/goose-sandbox"
+    source "$bare/goose-sandbox/goose-sandbox"
 }
 
 # Install a stub executable on PATH that records its argv.

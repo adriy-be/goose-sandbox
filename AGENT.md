@@ -38,7 +38,14 @@ project-scoped
 ├── Dockerfile
 ├── LICENSE
 ├── README.md
-├── goose-sandbox
+├── goose-sandbox       # thin Bash dispatcher (entry point)
+├── lib/
+│   ├── config.sh       # env defaults, helpers, path/state management
+│   ├── install.sh      # self-installation
+│   ├── update.sh       # self-update, version tracking
+│   ├── recipe.sh       # recipe CRUD
+│   ├── skills.sh       # skills management
+│   └── doctor.sh       # health check
 ├── recipes/            # recipe templates (c, csharp, server)
 ├── sample.env
 └── tests/              # bats suite (see tests/README.md)
@@ -252,11 +259,11 @@ If behavior changes, update the README in the same change.
 
 ## ✅ Validation
 
-After changing `goose-sandbox`:
+After changing the launcher or lib modules:
 
 ```bash
 bash -n goose-sandbox
-shellcheck goose-sandbox
+shellcheck goose-sandbox lib/*.sh
 bats tests/                # run the full suite
 ```
 

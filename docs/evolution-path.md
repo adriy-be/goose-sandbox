@@ -97,9 +97,27 @@ Bash modules when any of these criteria are met:
 4. **Transparent** — users should not notice internal implementation changes
 5. **Reversible** — each phase can be rolled back without data loss
 
+## Phase 1 Status: ✅ Complete
+
+Phase 1 (Module Extraction) has been completed. The monolithic Bash launcher
+has been split into logical modules in `lib/*.sh`, each encapsulating one
+responsibility with well-defined functions. The dispatcher in `bin/goose-sandbox`
+is now thin: it parses args, sources modules, calls functions, and makes the
+final `exec docker` call.
+
+The bats test suite (76 tests) passes with zero regressions after the refactoring.
+
+### Module Layout (Implemented)
+
+- `goose-sandbox` — thin Bash dispatcher (entry point)
+- `lib/config.sh` — env var defaults, shared helpers (ok/warn/fail/usage), path/state management, recipe resolution, image tagging
+- `lib/install.sh` — `cmd_install`, `ensure_managed_repo`
+- `lib/update.sh` — `cmd_update`, `cmd_version`, channel/release management
+- `lib/recipe.sh` — all recipe CRUD functions
+- `lib/skills.sh` — `cmd_skills`, `skills_run`, `skills_usage`
+- `lib/doctor.sh` — `doctor`, `check_workspace`, `env_permissions`, `sha256_hash`
+
 ## Immediate Next Steps
 
-1. Define `lib/*.sh` module boundaries and function signatures
-2. Refactor the dispatcher to source modules
-3. Run the bats test suite to verify no regression
-4. Identify the first module that justifies a compiled implementation
+1. Identify the first module that justifies a compiled implementation
+2. Phase 2: Dedicated CLI for justified features
