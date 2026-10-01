@@ -41,5 +41,8 @@ jobs:
       - name: Build base image
         run: docker build -t goose-agent .
 
+      - name: Run security regression tests
+        run: bats tests/security.bats
+
       - name: Build recipe image (c)
         run: docker build -f recipes/c.dockerfile -t goose-agent-c:ci .

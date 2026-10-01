@@ -64,7 +64,7 @@ so `DEV_MODE` is 0.
 > function do not persist** — assert on `$output`/`$status`, or call the
 > function directly when the test checks a modified global.
 
-## Coverage map (Tier 1-4)
+## Coverage map (Tier 1-5)
 
 | Tier | What | Files |
 | --- | --- | --- |
@@ -72,6 +72,33 @@ so `DEV_MODE` is 0.
 | 2 | Env-dependent, no external commands: `ensure_path`, `check_workspace`, `ensure_state_dir` | `paths.bats` |
 | 3 | Shell out to `docker`/`git`/`install` (mocked): `cmd_install`, `cmd_update`, `ensure_managed_repo`, `doctor`, `resolve_recipe`, recipe subcommands, `skills_run` | `install.bats`, `doctor.bats`, `recipes.bats`, `skills.bats` |
 | 4 | CLI dispatch / exit codes / usage (launcher run as a subprocess) | `cli.bats`, plus dispatch cases in `recipes.bats`/`skills.bats` |
+| 5 | Security regression (real docker, no mocks): validates the documented sandbox security boundary by inspecting actual running containers | `security.bats` |
+
+### Tier-5: Security regression tests (`security.bats`)
+
+These tests use **real docker** (not mocked) to spin up actual containers and
+inspect runtime properties, verifying the documented security boundary from
+README.md "Sandbox Security Boundary".
+
+Requires: docker, the `goose-agent` base image (built by CI or
+`goose-sandbox install`). Skips automatically if docker or the image is missing.
+
+Guarantees tested:
+- `--cap-drop=ALL` (no Linux capabilities retained)
+- `--security-opt=no-new-privileges:true`
+- `--pids-limit=512` (default, overridable)
+- `--memory=8g` (default, overridable)
+- non-root user (goose, UID 1000)
+- `/var/run/docker.sock` not mounted
+- no `--privileged`
+- only `/workspace` and `/goose-state` mounted (plus documented tmpfs/skills)
+- tini init process present
+- network defaults to enabled, disableable with `GOOSE_SANDBOX_NETWORK=none`
+
+Run locally:
+```bash
+bats tests/security.bats
+```
 
 ## Adding a test
 
