@@ -1,0 +1,5 @@
+# Ignore SC1091: "Not following: <file> was not specified as input" — expected
+# when checking lib/*.sh files in isolation (they're sourced, not specified).
+# Ignore SC2034: "appears unused" — variables are set in lib/config.sh and
+# used in the main script or other lib files; shellcheck cannot see across files.
+disable=SC1091,SC2034

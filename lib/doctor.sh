@@ -8,6 +8,45 @@
 doctor() {
     local failed=0
 
+    printf 'Installation:\n'
+    if [[ "$DEV_MODE" == "1" ]]; then
+        ok "Development checkout: $SCRIPT_SRC"
+    else
+        if [[ -d "$SANDBOX_HOME" ]]; then
+            ok "Managed home exists: $SANDBOX_HOME"
+        else
+            fail "Managed home missing: $SANDBOX_HOME"
+            failed=1
+        fi
+
+        if [[ -f "$SANDBOX_HOME/$SCRIPT_NAME" ]]; then
+            ok "Dispatcher exists: $SANDBOX_HOME/$SCRIPT_NAME"
+        else
+            fail "Dispatcher missing: $SANDBOX_HOME/$SCRIPT_NAME"
+            failed=1
+        fi
+
+        local lib_ok=1
+        for f in config.sh install.sh update.sh recipe.sh skills.sh doctor.sh; do
+            if [[ ! -f "$SANDBOX_HOME/lib/$f" ]]; then
+                fail "lib/$f missing in managed installation"
+                lib_ok=0
+                failed=1
+            fi
+        done
+        if [[ $lib_ok -eq 1 ]]; then
+            ok "Required lib/ modules present"
+        fi
+    fi
+
+    if [[ -f "$VERSION_FILE" ]]; then
+        ok "Version file readable: $(installed_version)"
+    else
+        warn "Version file not found at $VERSION_FILE"
+    fi
+
+    printf '\nEnvironment:\n'
+
     if command -v docker >/dev/null 2>&1; then
         ok "Docker installed"
     else

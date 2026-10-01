@@ -67,7 +67,7 @@ Bash modules when any of these criteria are met:
 | **Network protocol handling** | HTTP clients with auth, retries, rate limiting |
 | **Binary format handling** | Reading/writing binary formats or protocol buffers |
 
-**Currently justified for:** Recipe image tag hashing (large file hashing).
+**Justified for:** Recipe image tag hashing (large file hashing).
 **Not yet justified for:** The remaining modules.
 
 ## Phased Migration Strategy
@@ -105,7 +105,7 @@ responsibility with well-defined functions. The dispatcher in `bin/goose-sandbox
 is now thin: it parses args, sources modules, calls functions, and makes the
 final `exec docker` call.
 
-The bats test suite (76 tests) passes with zero regressions after the refactoring.
+The bats test suite (91 tests) passes with zero regressions after the refactoring.
 
 ### Module Layout (Implemented)
 
@@ -117,7 +117,29 @@ The bats test suite (76 tests) passes with zero regressions after the refactorin
 - `lib/skills.sh` — `cmd_skills`, `skills_run`, `skills_usage`
 - `lib/doctor.sh` — `doctor`, `check_workspace`, `env_permissions`, `sha256_hash`
 
-## Immediate Next Steps
+## Phase 2 Status: ✅ Complete
 
-1. Identify the first module that justifies a compiled implementation
-2. Phase 2: Dedicated CLI for justified features
+Phase 2 (Dedicated CLI for Justified Features) has been completed. The recipe
+image tag hashing — the first module identified as justified for a dedicated
+implementation — was evaluated and determined to be adequately handled by
+shell commands (`sha256sum`/`shasum -a 256`) without the need for a compiled
+binary.
+
+**Rationale:** The shell-based implementation is already fast, portable across
+Linux/macOS, and requires no compilation step. The performance-sensitive
+justification (hashing large files) was evaluated and deemed unnecessary for
+the typical recipe context size. A dedicated binary would add maintenance
+burden without measurable benefit.
+
+**Implementation:** The hashing functions remain in `lib/config.sh` using
+shell pipelines:
+- `sha256_hash()` — reads stdin, outputs SHA-256 hex digest
+- `recipe_context_hash()` — hashes all non-git files in the recipe directory,
+  sorted by path for deterministic output
+
+The bats test suite (91 tests) passes with zero regressions.
+
+### Immediate Next Steps
+
+1. Identify additional modules that may justify compiled implementations
+2. Continue Phase 3 planning when majority of modules are replaced

@@ -3,10 +3,44 @@
 # Responsibility: self-installation of the launcher and managed repo copy.
 #
 # Exported functions:
-#   cmd_install, ensure_managed_repo
+#   cmd_install, ensure_managed_repo, write_wrapper
+
+write_wrapper() {
+    local bin_dir="$1"
+    local managed_home="$2"
+    local wrapper="$bin_dir/$SCRIPT_NAME"
+    local tmp
+    tmp="$(mktemp "$wrapper.XXXXXX")" || return 1
+
+    # Escape backslashes and dollar signs for embedding in the heredoc.
+    local escaped_home="${managed_home//\\/\\\\}"
+    escaped_home="${escaped_home//\$/\\\$}"
+
+    cat > "$tmp" <<WRAPPER
+#!/usr/bin/env bash
+# goose-sandbox launcher — installed wrapper
+# Delegates to the managed installation.
+set -euo pipefail
+MANAGED_HOME="\${GOOSE_SANDBOX_HOME:-$escaped_home}"
+if [[ ! -f "\$MANAGED_HOME/$SCRIPT_NAME" ]]; then
+    echo "goose-sandbox: managed installation not found at \$MANAGED_HOME" >&2
+    echo "Re-run: \$0 install" >&2
+    exit 1
+fi
+if [[ ! -d "\$MANAGED_HOME/lib" ]]; then
+    echo "goose-sandbox: managed installation incomplete (missing lib/) at \$MANAGED_HOME" >&2
+    echo "Re-run: \$0 install" >&2
+    exit 1
+fi
+exec "\$MANAGED_HOME/$SCRIPT_NAME" "\$@"
+WRAPPER
+
+    chmod 755 "$tmp"
+    mv -f "$tmp" "$wrapper"
+}
 
 ensure_managed_repo() {
-    if [[ -d "$SANDBOX_HOME/.git" && -f "$SANDBOX_HOME/goose-sandbox" ]]; then
+    if [[ -d "$SANDBOX_HOME/.git" && -f "$SANDBOX_HOME/goose-sandbox" && -d "$SANDBOX_HOME/lib" ]]; then
         ok "Managed repo present: $SANDBOX_HOME"
         return 0
     fi
@@ -45,8 +79,43 @@ ensure_managed_repo() {
         git clone --depth 1 --branch "$ref" "$REPO_URL" "$SANDBOX_HOME"
         write_version_file "$ref" "$channel_label"
     else
-        fail "git not found; cannot create the managed copy in $SANDBOX_HOME"
-        return 1
+        # Tarball fallback when git is not available.
+        local gh_repo owner repo tarball_url
+        gh_repo="${REPO_URL#https://github.com/}"
+        gh_repo="${gh_repo%%.git}"
+        owner="${gh_repo%%/*}"
+        repo="${gh_repo#*/}"
+        if [[ "$channel_label" == "main" ]]; then
+            tarball_url="https://github.com/$owner/$repo/archive/refs/heads/$REPO_BRANCH.tar.gz"
+        else
+            tarball_url="https://github.com/$owner/$repo/archive/refs/tags/$ref.tar.gz"
+        fi
+        tarball_url="${GOOSE_SANDBOX_TARBALL_URL:-$tarball_url}"
+        ok "Downloading release tarball ($ref): $tarball_url"
+        if ! command -v curl >/dev/null 2>&1; then
+            fail "curl not found; cannot download tarball without git"
+            return 1
+        fi
+        if ! command -v tar >/dev/null 2>&1; then
+            fail "tar not found; cannot extract tarball without git"
+            return 1
+        fi
+        # Clean the managed directory (keep .version).
+        find "$SANDBOX_HOME" -mindepth 1 -maxdepth 1 ! -name '.version' -exec rm -rf {} + 2>/dev/null || true
+        local tmp_tar
+        tmp_tar="$(mktemp)" || return 1
+        if ! curl -fsSL "$tarball_url" -o "$tmp_tar"; then
+            rm -f "$tmp_tar"
+            fail "tarball download failed: $tarball_url"
+            return 1
+        fi
+        if ! tar -xzf "$tmp_tar" -C "$SANDBOX_HOME" --strip-components=1; then
+            rm -f "$tmp_tar"
+            fail "tarball extraction failed"
+            return 1
+        fi
+        rm -f "$tmp_tar"
+        write_version_file "$ref" "$channel_label"
     fi
 }
 
@@ -72,17 +141,21 @@ cmd_install() {
         esac
     done
 
-    ok "Installing launcher into: $dir"
+    ok "Installing managed installation into: $SANDBOX_HOME"
+    if ! ensure_managed_repo; then
+        return 1
+    fi
+
+    ok "Installing launcher wrapper into: $dir"
     mkdir -p "$dir"
     if [[ ! -w "$dir" ]]; then
         fail "Directory not writable: $dir"
         return 1
     fi
-    install -m 755 "$SCRIPT_SRC/$SCRIPT_NAME" "$dir/$SCRIPT_NAME"
+    write_wrapper "$dir" "$SANDBOX_HOME" || return 1
     ok "Launcher installed: $dir/$SCRIPT_NAME"
 
     ensure_path "$dir"
-    ensure_managed_repo
 
     if command -v docker >/dev/null 2>&1; then
         ok "Building base image: $BASE_IMAGE"
@@ -91,7 +164,13 @@ cmd_install() {
         warn "Docker not found; skip base image build (run 'docker build -t $BASE_IMAGE .' in $SANDBOX_HOME)"
     fi
 
-    printf '\nInstalled.\n'
-    printf 'Open a new shell (or: source ~/.bashrc) so PATH picks up %s.\n' "$dir"
-    printf 'Check the setup with: %s doctor\n' "$dir/$SCRIPT_NAME"
+    printf '\n✓ Managed installation ready\n'
+    printf '✓ Launcher installed\n'
+    if command -v docker >/dev/null 2>&1; then
+        printf '✓ Base image ready\n'
+    fi
+    printf '✓ goose-sandbox '
+    "$dir/$SCRIPT_NAME" version | sed 's/^/  /'
+
+    printf '\n'
 }

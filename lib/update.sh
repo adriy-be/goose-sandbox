@@ -26,9 +26,11 @@ resolve_release_tag() {
         fi
     fi
     if command -v git >/dev/null 2>&1; then
-        tag="$(git ls-remote --tags "$REPO_URL" 2>/dev/null | awk '{print $1}' \
-            | sed 's/^refs\/tags\///' | grep -E '^v[0-9]+(\.[0-9]+)*$' \
-            | sort -V | tail -n 1)"
+        # git ls-remote returns "SHA REF"; extract the ref column ($2), strip refs/tags/,
+        # filter out annotated tag dereferences (^{}), keep only version tags.
+        tag="$(git ls-remote --tags "$REPO_URL" 2>/dev/null | awk '{print $2}' \
+            | sed 's|^refs/tags/||' | grep -E '^v[0-9]+(\.[0-9]+)*$' \
+            | sort -Vu | sort -V | tail -n 1)"
         if [[ -n "$tag" ]]; then
             printf '%s\n' "$tag"
             return 0
@@ -66,8 +68,8 @@ cmd_version() {
 }
 
 cmd_update() {
-    local home_src="$SANDBOX_HOME"
     local ref channel_label
+    local home_src="$SANDBOX_HOME"
 
     while [[ $# -gt 0 ]]; do
         case "$1" in
@@ -122,44 +124,54 @@ cmd_update() {
                 fail "git update failed in $SANDBOX_HOME"
                 return 1
             }
-        elif command -v curl >/dev/null 2>&1; then
-            local gh_repo owner repo tarball
+        else
+            # Tarball fallback when git is not available or not a git repo.
+            local gh_repo owner repo tarball_url
             gh_repo="${REPO_URL#https://github.com/}"
             gh_repo="${gh_repo%%.git}"
             owner="${gh_repo%%/*}"
             repo="${gh_repo#*/}"
-            ok "Downloading release tarball ($ref)"
-            find "$SANDBOX_HOME" -mindepth 1 -maxdepth 1 ! -name '.git' ! -name '.version' -exec rm -rf {} + 2>/dev/null || true
-            tarball="${TARBALL_URL:-https://github.com/$owner/$repo/archive/refs/tags/$ref.tar.gz}"
-            curl -fsSL "$tarball" | tar -xz --strip-components=1 -C "$SANDBOX_HOME" || {
-                fail "tarball download failed"
+            if [[ "$channel_label" == "main" ]]; then
+                tarball_url="https://github.com/$owner/$repo/archive/refs/heads/$REPO_BRANCH.tar.gz"
+            else
+                tarball_url="https://github.com/$owner/$repo/archive/refs/tags/$ref.tar.gz"
+            fi
+            tarball_url="${TARBALL_URL:-$tarball_url}"
+            ok "Downloading release tarball ($ref): $tarball_url"
+            if ! command -v curl >/dev/null 2>&1; then
+                fail "curl not found; cannot download tarball without git"
                 return 1
-            }
-        else
-            fail "Neither git nor curl available to update"
-            return 1
+            fi
+            if ! command -v tar >/dev/null 2>&1; then
+                fail "tar not found; cannot extract tarball without git"
+                return 1
+            fi
+            find "$SANDBOX_HOME" -mindepth 1 -maxdepth 1 ! -name '.version' -exec rm -rf {} + 2>/dev/null || true
+            local tmp_tar
+            tmp_tar="$(mktemp)" || return 1
+            if ! curl -fsSL "$tarball_url" -o "$tmp_tar"; then
+                rm -f "$tmp_tar"
+                fail "tarball download failed: $tarball_url"
+                return 1
+            fi
+            if ! tar -xzf "$tmp_tar" -C "$SANDBOX_HOME" --strip-components=1; then
+                rm -f "$tmp_tar"
+                fail "tarball extraction failed"
+                return 1
+            fi
+            rm -f "$tmp_tar"
         fi
         write_version_file "$ref" "$channel_label"
     fi
 
     local bin_dir="$SANDBOX_BIN_DIR"
-    local do_reinstall=1
-    if [[ "$DEV_MODE" == "1" && -z "$bin_dir" ]]; then
-        do_reinstall=0
+    if [[ -z "$bin_dir" ]]; then
+        bin_dir="$HOME/.local/bin"
     fi
 
-    if [[ "$do_reinstall" == "1" ]]; then
-        if [[ -z "$bin_dir" ]]; then
-            if [[ "$SCRIPT_SRC" != "$SANDBOX_HOME" && -w "$SCRIPT_SRC" && -f "$SCRIPT_SRC/$SCRIPT_NAME" ]]; then
-                bin_dir="$SCRIPT_SRC"
-            else
-                bin_dir="$HOME/.local/bin"
-            fi
-        fi
-        mkdir -p "$bin_dir"
-        install -m 755 "$home_src/$SCRIPT_NAME" "$bin_dir/$SCRIPT_NAME"
-        ok "Launcher updated: $bin_dir/$SCRIPT_NAME"
-    fi
+    mkdir -p "$bin_dir"
+    write_wrapper "$bin_dir" "$SANDBOX_HOME" || return 1
+    ok "Launcher updated: $bin_dir/$SCRIPT_NAME"
 
     if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
         ok "Rebuilding base image: $BASE_IMAGE"
