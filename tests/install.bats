@@ -8,7 +8,7 @@ load helpers
     run cmd_install --dir "$TEST_ROOT/bin"
     [ "$status" -eq 0 ]
     [ -f "$TEST_ROOT/bin/goose-sandbox" ]
-    [[ "$output" == *"Installing launcher into: $TEST_ROOT/bin"* ]]
+    [[ "$output" == *"Installing launcher wrapper into: $TEST_ROOT/bin"* ]]
     [[ "$output" == *"docker: build -t goose-agent"* ]]
 }
 
@@ -27,6 +27,7 @@ load helpers
 
 @test "ensure_managed_repo: detects an existing managed repo" {
     mkdir -p "$SANDBOX_HOME/.git"
+    mkdir -p "$SANDBOX_HOME/lib"
     touch "$SANDBOX_HOME/goose-sandbox"
     run ensure_managed_repo
     [ "$status" -eq 0 ]
@@ -54,6 +55,7 @@ load helpers
     mock_cmd git 'echo "git: $*" >> "$MOCK_BIN/git.log"'
     run ensure_managed_repo
     [ "$status" -eq 0 ]
+    [ -f "$MOCK_BIN/git.log" ]
     grep -q "git: clone --depth 1 --branch v1.0.0" "$MOCK_BIN/git.log"
     grep -q "$SANDBOX_HOME" "$MOCK_BIN/git.log"
     [ -f "$SANDBOX_HOME/.version" ]
@@ -67,6 +69,7 @@ load helpers
     mock_cmd git 'echo "git: $*" >> "$MOCK_BIN/git.log"'
     run ensure_managed_repo
     [ "$status" -eq 0 ]
+    [ -f "$MOCK_BIN/git.log" ]
     grep -q "git: clone --depth 1 --branch main" "$MOCK_BIN/git.log"
     grep -q "channel=main" "$SANDBOX_HOME/.version"
 }
@@ -87,6 +90,7 @@ load helpers
     sandbox_up_nondev
     export GOOSE_SANDBOX_RELEASE=v1.2.0
     mkdir -p "$SANDBOX_HOME/.git"
+    mkdir -p "$SANDBOX_HOME/lib"
     touch "$SANDBOX_HOME/goose-sandbox"
     mock_cmd git 'echo "git: $*" >> "$MOCK_BIN/git.log"'
     mock_cmd install 'dest="${@: -1}"; mkdir -p "$(dirname "$dest")"; touch "$dest"'
@@ -94,6 +98,7 @@ load helpers
     run cmd_update
     [ "$status" -eq 0 ]
     [[ "$output" == *"Updating managed repo to v1.2.0"* ]]
+    [ -f "$MOCK_BIN/git.log" ]
     grep -q "git: fetch --depth 1 origin v1.2.0" "$MOCK_BIN/git.log"
     grep -q "git: reset --hard FETCH_HEAD" "$MOCK_BIN/git.log"
     grep -q "version=v1.2.0" "$SANDBOX_HOME/.version"
@@ -103,6 +108,7 @@ load helpers
 @test "cmd_update: --release flag pins the tag and rolls back" {
     sandbox_up_nondev
     mkdir -p "$SANDBOX_HOME/.git"
+    mkdir -p "$SANDBOX_HOME/lib"
     touch "$SANDBOX_HOME/goose-sandbox"
     printf 'version=v9.9.9\nchannel=release\n' > "$SANDBOX_HOME/.version"
     mock_cmd git 'echo "git: $*" >> "$MOCK_BIN/git.log"'
@@ -110,6 +116,7 @@ load helpers
     mock_cmd docker 'exit 0'
     run cmd_update --release v1.0.0
     [ "$status" -eq 0 ]
+    [ -f "$MOCK_BIN/git.log" ]
     grep -q "git: fetch --depth 1 origin v1.0.0" "$MOCK_BIN/git.log"
     grep -q "version=v1.0.0" "$SANDBOX_HOME/.version"
 }
@@ -117,12 +124,14 @@ load helpers
 @test "cmd_update: edge channel (--edge) tracks main" {
     sandbox_up_nondev
     mkdir -p "$SANDBOX_HOME/.git"
+    mkdir -p "$SANDBOX_HOME/lib"
     touch "$SANDBOX_HOME/goose-sandbox"
     mock_cmd git 'echo "git: $*" >> "$MOCK_BIN/git.log"'
     mock_cmd install 'dest="${@: -1}"; mkdir -p "$(dirname "$dest")"; touch "$dest"'
     mock_cmd docker 'exit 0'
     run cmd_update --edge
     [ "$status" -eq 0 ]
+    [ -f "$MOCK_BIN/git.log" ]
     grep -q "git: fetch --depth 1 origin main" "$MOCK_BIN/git.log"
     grep -q "channel=main" "$SANDBOX_HOME/.version"
 }

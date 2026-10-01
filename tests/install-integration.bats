@@ -106,6 +106,7 @@ teardown() {
     cp -a "$(dirname "$SCRIPT_PATH")/lib" "$DEV_CHECKOUT/lib"
     cp -a "$(dirname "$SCRIPT_PATH")/Dockerfile" "$DEV_CHECKOUT/Dockerfile"
     cp -a "$(dirname "$SCRIPT_PATH")/recipes" "$DEV_CHECKOUT/recipes"
+    mkdir -p "$DEV_CHECKOUT/.git"
 
     # shellcheck disable=SC1090
     source "$DEV_CHECKOUT/goose-sandbox"
@@ -116,8 +117,11 @@ teardown() {
     # Run update from the managed installation (non-dev mode).
     export SCRIPT_SRC="$SANDBOX_HOME"
     DEV_MODE=0
-    mock_cmd git 'echo "git: $*"'
+    mock_cmd git 'echo "git: $*" >> "$MOCK_BIN/git.log"; if [[ "$1" == "ls-remote" ]]; then echo "abc123 refs/tags/v1.0.0"; fi'
+    mock_cmd curl 'echo ""'  # Fail silently to force git fallback
     run cmd_update
+    echo "DEBUG: update status=$status" >&2
+    echo "DEBUG: update output=$output" >&2
     [ "$status" -eq 0 ]
 
     # Launcher still works after update.
@@ -219,6 +223,9 @@ teardown() {
 }
 
 @test "resolve_release_tag: git fallback extracts tag name, not SHA" {
+    # Source the launcher to get resolve_release_tag function
+    source "$SCRIPT_PATH"
+
     # Mock git ls-remote to return lines in the format "SHA REF".
     mock_cmd git 'echo "abc123456789 refs/tags/v1.0.0
 def456789012 refs/tags/v1.0.0^{}
@@ -233,6 +240,7 @@ mno345678901 refs/tags/v1.5.0"'
 }
 
 @test "resolve_release_tag: pinned tag passes through" {
+    source "$SCRIPT_PATH"
     run resolve_release_tag v1.0.0
     [ "$status" -eq 0 ]
     [ "$output" == "v1.0.0" ]
@@ -241,13 +249,17 @@ mno345678901 refs/tags/v1.5.0"'
 @test "ensure_managed_repo: tarball fallback for non-dev mode without git" {
     sandbox_up_nondev
     export GOOSE_SANDBOX_RELEASE=v1.0.0
-    # No git mock — just curl.
+    # Mock git to fail on clone, forcing tarball fallback.
+    mock_cmd git 'if [[ "$1" == "clone" ]]; then echo "fatal: Remote branch not found" >&2; exit 1; fi; exit 0'
     mock_cmd curl 'echo "curl: $*" >> "$MOCK_BIN/curl.log"; echo ""'
     mock_cmd tar 'echo "tar: $*" >> "$MOCK_BIN/tar.log"'
 
     run ensure_managed_repo
+    echo "DEBUG: status=$status" >&2
+    echo "DEBUG: output=$output" >&2
     [ "$status" -eq 0 ]
     [[ "$output" == *"Downloading release tarball"* ]]
+    [ -f "$MOCK_BIN/curl.log" ]
     grep -q "curl: " "$MOCK_BIN/curl.log"
     grep -q "refs/tags/v1.0.0.tar.gz" "$MOCK_BIN/curl.log"
 }
@@ -255,10 +267,12 @@ mno345678901 refs/tags/v1.5.0"'
 @test "ensure_managed_repo: edge tarball uses refs/heads/main" {
     sandbox_up_nondev
     export GOOSE_SANDBOX_CHANNEL=main
+    mock_cmd git 'exit 1'
     mock_cmd curl 'echo "curl: $*" >> "$MOCK_BIN/curl.log"; echo ""'
     mock_cmd tar 'echo "tar: $*"'
 
     run ensure_managed_repo
     [ "$status" -eq 0 ]
+    [ -f "$MOCK_BIN/curl.log" ]
     grep -q "refs/heads/main.tar.gz" "$MOCK_BIN/curl.log"
 }

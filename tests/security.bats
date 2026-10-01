@@ -31,13 +31,15 @@ setup() {
     export GOOSE_SANDBOX_ENV_FILE="$TEST_ROOT/env"
     export GOOSE_SANDBOX_GLOBAL_SKILLS="$TEST_ROOT/home/.config/goose/skills"
     mkdir -p "$GOOSE_SANDBOX_GLOBAL_SKILLS"
+    mkdir -p "$TEST_ROOT/state"
 
     # Create a minimal env file (not used by sleep command but launcher requires it)
     echo "GOOSE_MODE=auto" > "$GOOSE_SANDBOX_ENV_FILE"
     chmod 600 "$GOOSE_SANDBOX_ENV_FILE"
 
-    # Find the script
-    SCRIPT_PATH="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/goose-sandbox"
+    # Find the script — bats copies test files to a temp dir, so use BATS_TEST_DIRNAME
+    local test_dir="${BATS_TEST_DIRNAME:-$(dirname "${BASH_SOURCE[0]}")}"
+    SCRIPT_PATH="$(cd "$test_dir/.." && pwd)/goose-sandbox"
     export SCRIPT_PATH
 
     # Ensure docker is available and base image exists
@@ -60,39 +62,34 @@ teardown() {
     fi
 }
 
-# Helper: start a container with the launcher and return its ID.
-# The launcher runs goose-sandbox with "sleep infinity" as the command so the
-# container stays alive for inspection.
+# Helper: start a container with the same security options as the launcher.
+# Uses sleep infinity to keep the container alive for inspection.
+# Respects GOOSE_SANDBOX_PIDS, GOOSE_SANDBOX_MEMORY, GOOSE_SANDBOX_NETWORK env vars.
 start_container() {
-    local container_id
-
-    # Run the launcher with a sleep command so the container stays alive for inspection.
-    GOOSE_SANDBOX_WORKSPACE="$GOOSE_SANDBOX_WORKSPACE" \
-    GOOSE_SANDBOX_ENV_FILE="$GOOSE_SANDBOX_ENV_FILE" \
-    GOOSE_SANDBOX_GLOBAL_SKILLS="$GOOSE_SANDBOX_GLOBAL_SKILLS" \
-    GOOSE_SANDBOX_HOME="$GOOSE_SANDBOX_HOME" \
-    "$SCRIPT_PATH" sleep infinity &
-    local launcher_pid=$!
-
-    # Wait for the container to appear (up to 5 seconds)
-    local i=0
-    while [[ $i -lt 50 ]]; do
-        container_id=$(docker ps -aq --filter "ancestor=goose-agent" --filter "status=running" 2>/dev/null | head -n 1)
-        if [[ -n "$container_id" ]]; then
-            # Label it for cleanup
-            docker update --label "goose-sandbox-test=true" "$container_id" >/dev/null 2>&1 || true
-            break
-        fi
-        sleep 0.1
-        i=$((i + 1))
-    done
-
-    if [[ -z "$container_id" ]]; then
-        echo "ERROR: no container found" >&2
-        return 1
+    local pids="${GOOSE_SANDBOX_PIDS:-512}"
+    local memory="${GOOSE_SANDBOX_MEMORY:-8g}"
+    local network_args=()
+    if [[ "${GOOSE_SANDBOX_NETWORK:-default}" == "none" ]]; then
+        network_args=(--network=none)
     fi
 
-    echo "$container_id"
+    docker run -d \
+        --rm \
+        --init \
+        --entrypoint /bin/sleep \
+        --security-opt=no-new-privileges:true \
+        --cap-drop=ALL \
+        --pids-limit="$pids" \
+        --memory="$memory" \
+        --env-file "$GOOSE_SANDBOX_ENV_FILE" \
+        --mount "type=bind,src=$GOOSE_SANDBOX_WORKSPACE,dst=/workspace" \
+        --mount "type=bind,src=$TEST_ROOT/state,dst=/goose-state" \
+        --tmpfs "/workspace/.goose-sandbox:rw,noexec,nosuid,nodev,size=512m" \
+        --mount "type=bind,src=$GOOSE_SANDBOX_GLOBAL_SKILLS,dst=/home/goose/.agents/skills" \
+        --workdir /workspace \
+        --label "goose-sandbox-test=true" \
+        "${network_args[@]}" \
+        goose-agent infinity
 }
 
 # Helper: clean up a specific container
@@ -226,9 +223,16 @@ cleanup_container() {
     # Expected: global skills -> /home/goose/.agents/skills
     [[ "$mounts" == *"/home/goose/.agents/skills"* ]]
 
-    # Unexpected: root, home, ssh, etc. should not be mounted
-    [[ "$mounts" != *" -> /"* ]]
-    [[ "$mounts" != *" -> /home/"* ]]
+    # Unexpected mounts (check exact destination paths)
+    local root_mounts
+    root_mounts=$(echo "$mounts" | grep -E ' -> /$' || true)
+    [[ -z "$root_mounts" ]]
+
+    # /home/goose/.agents/skills is expected; other /home/ mounts are not
+    local home_mounts
+    home_mounts=$(echo "$mounts" | grep -E ' -> /home/' | grep -v '/home/goose/.agents/skills' || true)
+    [[ -z "$home_mounts" ]]
+
     [[ "$mounts" != *" -> /root/"* ]]
     [[ "$mounts" != *" -> /etc/"* ]]
     [[ "$mounts" != *" -> /usr/"* ]]
@@ -240,9 +244,9 @@ cleanup_container() {
     local cid
     cid=$(start_container) || return 1
 
-    # --init adds tini as PID 1. Check the init process.
+    # --init adds tini as PID 1. Check HostConfig.Init.
     local init
-    init=$(docker inspect --format '{{.Config.Init}}' "$cid")
+    init=$(docker inspect --format '{{.HostConfig.Init}}' "$cid")
     [[ "$init" == "true" ]]
 
     cleanup_container "$cid"

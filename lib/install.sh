@@ -74,12 +74,22 @@ ensure_managed_repo() {
         channel_label="release"
     fi
 
+    # Try git clone first, fall back to tarball on failure or if git unavailable.
+    local install_method="git"
     if command -v git >/dev/null 2>&1; then
         ok "Cloning repository ($ref) into: $SANDBOX_HOME"
-        git clone --depth 1 --branch "$ref" "$REPO_URL" "$SANDBOX_HOME"
-        write_version_file "$ref" "$channel_label"
+        if ! git clone --depth 1 --branch "$ref" "$REPO_URL" "$SANDBOX_HOME"; then
+            warn "git clone failed, falling back to tarball"
+            install_method="tarball"
+        else
+            write_version_file "$ref" "$channel_label"
+            return 0
+        fi
     else
-        # Tarball fallback when git is not available.
+        install_method="tarball"
+    fi
+
+    if [[ "$install_method" == "tarball" ]]; then
         local gh_repo owner repo tarball_url
         gh_repo="${REPO_URL#https://github.com/}"
         gh_repo="${gh_repo%%.git}"
@@ -93,11 +103,11 @@ ensure_managed_repo() {
         tarball_url="${GOOSE_SANDBOX_TARBALL_URL:-$tarball_url}"
         ok "Downloading release tarball ($ref): $tarball_url"
         if ! command -v curl >/dev/null 2>&1; then
-            fail "curl not found; cannot download tarball without git"
+            fail "curl not found; cannot download tarball"
             return 1
         fi
         if ! command -v tar >/dev/null 2>&1; then
-            fail "tar not found; cannot extract tarball without git"
+            fail "tar not found; cannot extract tarball"
             return 1
         fi
         # Clean the managed directory (keep .version).

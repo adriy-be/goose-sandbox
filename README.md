@@ -49,15 +49,19 @@ goose-sandbox
 ./goose-sandbox install
 ```
 
-This copies the launcher to `~/.local/bin`, adds it to your `PATH` in
-`~/.bashrc` / `~/.zshrc` / `~/.profile`, clones the latest tagged release into
-`~/.local/share/goose-sandbox` (the managed copy), and builds the base image.
+This installs a small launcher wrapper to `~/.local/bin/goose-sandbox` and
+clones the latest tagged release into `~/.local/share/goose-sandbox`
+(the managed installation). The managed installation contains the full
+repository — launcher, `lib/` modules, `recipes/`, and the `Dockerfile`.
 
 Open a new shell (or `source ~/.bashrc`) so `~/.local/bin` is on your `PATH`.
 
 Override the target with `goose-sandbox install --dir DIR` or
-`GOOSE_SANDBOX_BIN_DIR`; the managed copy lives in `GOOSE_SANDBOX_HOME`
+`GOOSE_SANDBOX_BIN_DIR`; the managed installation lives in `GOOSE_SANDBOX_HOME`
 (default `~/.local/share/goose-sandbox`).
+
+The two-location design keeps your `PATH` clean (no `lib/` duplication) while
+the managed installation is updated independently by `goose-sandbox update`.
 
 > Running straight from a clone without installing? Build the base image once:
 > `docker build -t goose-agent .`. It pins Goose `v1.52.0` and uv `0.12.1` —
@@ -116,14 +120,31 @@ name are passed through to `goose session`.
 The launcher installs and updates itself — and everything in the repository.
 
 ```bash
-goose-sandbox install [--dir DIR]   # install launcher + managed repo + base image
-goose-sandbox update                # pull the repo, reinstall launcher, rebuild base image
+goose-sandbox install [--dir DIR]   # install launcher + managed installation + base image
+goose-sandbox update                # update managed installation, reinstall launcher, rebuild base image
 ```
 
-`install` places the launcher in `~/.local/bin` (override with `--dir` or
-`GOOSE_SANDBOX_BIN_DIR`) and keeps a git clone of the current tagged release
-in `GOOSE_SANDBOX_HOME` (default `~/.local/share/goose-sandbox`) — the source
-for the `Dockerfile`, recipe templates and `sample.env`.
+### Two-location architecture
+
+```text
+~/.local/bin/goose-sandbox          ← small wrapper (in PATH)
+        ↓ exec
+~/.local/share/goose-sandbox/       ← full managed installation
+├── goose-sandbox                   ← real launcher
+├── lib/                            ← bash modules
+├── recipes/                        ← template recipes
+└── Dockerfile
+```
+
+- **`~/.local/bin/goose-sandbox`** — a small wrapper script on your `PATH`
+  that forwards all arguments to the managed installation. Override the
+  bin directory with `--dir` or `GOOSE_SANDBOX_BIN_DIR`.
+- **`GOOSE_SANDBOX_HOME`** (default `~/.local/share/goose-sandbox`) — the
+  full managed installation, updated independently by `update`. Override
+  with `GOOSE_SANDBOX_HOME`.
+
+The wrapper validates that the managed installation is complete and fails
+clearly if it's missing or corrupt.
 
 ### Update channels
 
@@ -142,6 +163,11 @@ Every install/update records the version and channel in
 `$GOOSE_SANDBOX_HOME/.version`; `goose-sandbox version` prints it, and
 reinstalling any earlier tag (e.g. `goose-sandbox update --release v1.0.0`)
 rolls the installation back to that release.
+
+### git vs curl
+
+The installer uses `git` by default. If `git` is not available or `git clone`
+fails, it falls back to downloading a release tarball with `curl` and `tar`.
 
 ---
 

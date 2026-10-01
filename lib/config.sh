@@ -34,14 +34,21 @@ GLOBAL_SKILLS="${GOOSE_SANDBOX_GLOBAL_SKILLS:-$HOME/.config/goose/skills}"
 
 SCRIPT_SRC="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SCRIPT_NAME="goose-sandbox"
-# DEV_MODE: true when running from a development checkout outside SANDBOX_HOME.
-# The managed installation in SANDBOX_HOME is NOT a development checkout.
+# DEV_MODE: true when running from a development checkout (has Dockerfile + recipes).
+# The managed installation in SANDBOX_HOME also has these, so we explicitly check
+# if we're running from inside SANDBOX_HOME (not a dev checkout).
 if [[ "$SCRIPT_SRC" == "$SANDBOX_HOME" || "$SCRIPT_SRC" == "$SANDBOX_HOME/"* ]]; then
+    # Running from the managed installation - not a dev checkout.
     DEV_MODE=0
     TEMPLATES_DIR="$SANDBOX_HOME"
-else
+elif [[ -f "$SCRIPT_SRC/Dockerfile" && -d "$SCRIPT_SRC/recipes" ]]; then
+    # Running from a directory with Dockerfile and recipes - a dev checkout.
     DEV_MODE=1
     TEMPLATES_DIR="$SCRIPT_SRC"
+else
+    # Running from a bare launcher (no Dockerfile/recipes) - not a dev checkout.
+    DEV_MODE=0
+    TEMPLATES_DIR="$SANDBOX_HOME"
 fi
 
 usage() {

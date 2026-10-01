@@ -86,11 +86,24 @@ if [[ -n "$RECIPE" ]]; then
     fi
 fi
 
-DOCKER_ARGS=(
-    run
-    --rm
-    -it
-    --init
+# Use -t (TTY) only when stdout is a terminal (interactive use).
+# Tests and scripted runs (e.g., bats) run without a TTY.
+if [[ -t 1 ]]; then
+    DOCKER_ARGS=(
+        run
+        --rm
+        -it
+        --init
+    )
+else
+    DOCKER_ARGS=(
+        run
+        --rm
+        -i
+        --init
+    )
+fi
+DOCKER_ARGS+=(
     --security-opt=no-new-privileges:true
     --cap-drop=ALL
     --pids-limit="$PIDS"
