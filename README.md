@@ -60,7 +60,7 @@ Override the target with `goose-sandbox install --dir DIR` or
 (default `~/.local/share/goose-sandbox`).
 
 > Running straight from a clone without installing? Build the base image once:
-> `docker build -t goose-agent .`. It pins Goose `v1.50.0` and uv `0.12.1` —
+> `docker build -t goose-agent .`. It pins Goose `v1.52.0` and uv `0.12.1` —
 > rebuilding never silently moves to a newer Goose release.
 
 ### 2. Configure
@@ -660,3 +660,46 @@ Goose Sandbox is built on top of the community-maintained
 [`aaif-goose/goose`](https://github.com/aaif-goose/goose) project and its
 Docker image (`ghcr.io/aaif-goose/goose`), which provides the pinned Goose CLI
 and its runtime. Thanks to everyone who maintains and contributes to it.
+
+---
+
+## 📌 Upgrading base images
+
+External base images are pinned by OCI digest to ensure reproducible builds.
+The current pins are declared in the `Dockerfile` with comments showing the
+digest mapping.
+
+> **Tip:** Check for new releases monthly or when security advisories are
+> published for Goose CLI, uv, or their dependencies.
+
+To upgrade a base image to a newer version:
+
+1. **Check the latest available tag** for the image:
+   ```bash
+   # For Goose CLI — use `docker manifest inspect` to get the digest
+   # without downloading the full image
+   docker manifest inspect ghcr.io/aaif-goose/goose:latest | jq -r '.digest'
+
+   # For uv
+   docker manifest inspect ghcr.io/astral-sh/uv:latest | jq -r '.digest'
+   ```
+
+2. **Verify the version and digest** — make sure the tag you want to use
+   resolves to the expected version.
+
+3. **Update the Dockerfile** — replace both the version tag and the digest:
+   ```dockerfile
+   # Old (currently pinned)
+   FROM ghcr.io/aaif-goose/goose:v1.52.0@sha256:fb24feb32cf012a232da07ebb71fb50742264f2d4268fa2de9c860c34f3e5262
+   # New (example upgrade)
+   FROM ghcr.io/aaif-goose/goose:v1.53.0@sha256:<new-digest-here>
+   ```
+
+4. **Test the build** — rebuild the base image and verify functionality:
+   ```bash
+   docker build -t goose-agent .
+   goose-sandbox doctor
+   ```
+
+5. **Commit the change** — include the old and new version/digest in the
+   commit message for traceability.

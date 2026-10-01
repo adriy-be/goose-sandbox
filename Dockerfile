@@ -1,4 +1,6 @@
-FROM ghcr.io/aaif-goose/goose:v1.50.0
+# Pinned by OCI digest — update via README "Upgrading base images" section.
+# goose v1.52.0 → sha256:fb24feb32cf012a232da07ebb71fb50742264f2d4268fa2de9c860c34f3e5262
+FROM ghcr.io/aaif-goose/goose:v1.52.0@sha256:fb24feb32cf012a232da07ebb71fb50742264f2d4268fa2de9c860c34f3e5262
 
 USER root
 
@@ -29,7 +31,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # -------------------------------------------------------------------
 # uv (pinned, copied from the official image)
 # -------------------------------------------------------------------
-COPY --from=ghcr.io/astral-sh/uv:0.12.1 /uv /uvx /bin/
+# Pinned by OCI digest — update via README "Upgrading base images" section.
+# uv 0.12.1 → sha256:cf4eedcaa81655197f625739489effcbe71b61ceb1506f332c3facae5deceded
+COPY --from=ghcr.io/astral-sh/uv:0.12.1@sha256:cf4eedcaa81655197f625739489effcbe71b61ceb1506f332c3facae5deceded /uv /uvx /bin/
 
 # -------------------------------------------------------------------
 # Workspace + persistent Goose state
