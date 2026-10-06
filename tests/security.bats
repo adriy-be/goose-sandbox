@@ -27,6 +27,10 @@ setup() {
     mkdir -p "$HOME"
     export GOOSE_SANDBOX_WORKSPACE="$TEST_ROOT/workspace"
     mkdir -p "$GOOSE_SANDBOX_WORKSPACE"
+    # Workspace must be writable by the container user (goose, UID 1000).
+    # The workspace is created by the test runner (root on CI), so use
+    # 777 to grant write access regardless of the runner's UID.
+    chmod 777 "$GOOSE_SANDBOX_WORKSPACE"
     export GOOSE_SANDBOX_HOME="$TEST_ROOT/sandbox-home"
     export GOOSE_SANDBOX_ENV_FILE="$TEST_ROOT/env"
     export GOOSE_SANDBOX_GLOBAL_SKILLS="$TEST_ROOT/home/.config/goose/skills"
