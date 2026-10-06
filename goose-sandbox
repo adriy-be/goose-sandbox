@@ -14,6 +14,7 @@ source "$LIB_DIR/update.sh"
 source "$LIB_DIR/recipe.sh"
 source "$LIB_DIR/skills.sh"
 source "$LIB_DIR/doctor.sh"
+source "$LIB_DIR/secrets.sh"
 
 # Allow `source goose-sandbox` (e.g. the bats test harness) to load the
 # function definitions and top-level defaults without running the CLI.
@@ -58,9 +59,13 @@ esac
 # --- default: run a goose session ---------------------------------------
 check_workspace || exit 1
 
-if [[ ! -f "$ENV_FILE" ]]; then
-    fail "Environment file not found: $ENV_FILE"
-    exit 1
+backend="$(secrets_backend)"
+
+if [[ "$backend" == "env" ]]; then
+    if [[ ! -f "$ENV_FILE" ]]; then
+        fail "Environment file not found: $ENV_FILE"
+        exit 1
+    fi
 fi
 
 ensure_state_dir
@@ -108,7 +113,13 @@ DOCKER_ARGS+=(
     --cap-drop=ALL
     --pids-limit="$PIDS"
     --memory="$MEMORY"
-    --env-file "$ENV_FILE"
+)
+
+if [[ "$backend" == "env" ]]; then
+    DOCKER_ARGS+=(--env-file "$ENV_FILE")
+fi
+
+DOCKER_ARGS+=(
     --mount "type=bind,src=$WORKSPACE,dst=/workspace"
     --mount "type=bind,src=$STATE_DIR,dst=/goose-state"
     "--tmpfs=/workspace/.goose-sandbox:rw,noexec,nosuid,nodev,size=512m"
@@ -155,5 +166,20 @@ if [[ "$NETWORK" == "none" ]]; then
 elif [[ "$NETWORK" != "default" && -n "$NETWORK" ]]; then
     DOCKER_ARGS+=(--network="$NETWORK")
 fi
+
+INFISICAL_ENV_ARGS=()
+if [[ "$backend" == "infisical" ]]; then
+    secrets_init_infisical
+    env_args_str="$(secrets_get_infisical)"
+    read -ra INFISICAL_ENV_ARGS <<< "$env_args_str"
+    DOCKER_ARGS+=("${INFISICAL_ENV_ARGS[@]}")
+fi
+
+cleanup_infisical_on_exit() {
+    if [[ "$backend" == "infisical" ]]; then
+        secrets_cleanup_infisical
+    fi
+}
+trap cleanup_infisical_on_exit EXIT INT TERM
 
 exec docker "${DOCKER_ARGS[@]}" "$IMAGE" session "${MCP_ARGS[@]}" "$@"

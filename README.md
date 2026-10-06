@@ -77,6 +77,36 @@ chmod 600 ~/.config/goose-sandbox/.env
 
 Edit the file and add your API key.
 
+### Optional: Infisical secrets backend
+
+For shared PCs or stronger secret isolation, use Infisical as an optional
+secrets backend. API keys never touch disk on the host.
+
+```bash
+# Set up Infisical
+infisical login
+
+# Configure goose-sandbox to use Infisical
+export GOOSE_SANDBOX_SECRETS_BACKEND=infisical
+export GOOSE_SANDBOX_SECRET_KEYS="OPENAI_API_KEY,ANTHROPIC_API_KEY"
+
+# For self-hosted Infisical
+export GOOSE_SANDBOX_INFISICAL_DOMAIN="https://infisical.example.com"
+```
+
+Goose-sandbox will:
+- Authenticate to Infisical interactively (once per session)
+- Pull the configured secrets at runtime
+- Inject them into the container (names only, not values)
+- Clean up the Infisical session when you exit
+
+The `.env` file still holds non-secret config (provider, model, etc.).
+Infisical CLI is only required when `GOOSE_SANDBOX_SECRETS_BACKEND=infisical`.
+
+> Infisical mode protects secrets from other users on the shared PC after your
+> session ends. It does not prevent Goose from reading credentials during an
+> active network-enabled session.
+
 ### 3. Check setup
 
 ```bash

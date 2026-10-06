@@ -32,6 +32,11 @@ SANDBOX_BIN_DIR="${GOOSE_SANDBOX_BIN_DIR:-}"
 VERSION_FILE="$SANDBOX_HOME/.version"
 GLOBAL_SKILLS="${GOOSE_SANDBOX_GLOBAL_SKILLS:-$HOME/.config/goose/skills}"
 
+SECRETS_BACKEND="${GOOSE_SANDBOX_SECRETS_BACKEND:-env}"
+SECRET_KEYS="${GOOSE_SANDBOX_SECRET_KEYS:-OPENAI_API_KEY}"
+INFISICAL_DOMAIN="${GOOSE_SANDBOX_INFISICAL_DOMAIN:-}"
+INFISICAL_ENV="${GOOSE_SANDBOX_INFISICAL_ENV:-dev}"
+
 SCRIPT_SRC="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SCRIPT_NAME="goose-sandbox"
 # DEV_MODE: true when running from a development checkout (has Dockerfile + recipes).
@@ -81,6 +86,10 @@ Launcher settings (host environment):
   GOOSE_SANDBOX_RELEASE          Release tag to install (default: latest, resolved via GitHub)
   GOOSE_SANDBOX_TARBALL_URL      Override the release tarball URL used when git is unavailable
   GOOSE_SANDBOX_GLOBAL_SKILLS    Global skills dir (default: ~/.config/goose/skills)
+  GOOSE_SANDBOX_SECRETS_BACKEND  Secrets backend: env (default) or infisical
+  GOOSE_SANDBOX_SECRET_KEYS      Comma-separated list of secret keys to inject
+  GOOSE_SANDBOX_INFISICAL_DOMAIN Infisical domain for self-hosted instances
+  GOOSE_SANDBOX_INFISICAL_ENV    Infisical environment (default: dev)
 USAGE
 }
 

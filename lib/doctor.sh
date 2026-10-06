@@ -9,6 +9,18 @@ doctor() {
     local failed=0
 
     printf 'Installation:\n'
+
+    if [[ "$SECRETS_BACKEND" == "infisical" ]]; then
+        printf '\nSecrets backend: infisical\n'
+        if command -v infisical >/dev/null 2>&1; then
+            ok "infisical CLI installed"
+        else
+            fail "infisical CLI not found"
+            failed=1
+        fi
+    else
+        printf '\nSecrets backend: env\n'
+    fi
     if [[ "$DEV_MODE" == "1" ]]; then
         ok "Development checkout: $SCRIPT_SRC"
     else
