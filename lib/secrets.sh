@@ -34,13 +34,15 @@ secrets_init_infisical() {
     if ! printf '%s' "$status" | grep -q 'Authenticated'; then
         ok "Authenticating to Infisical..."
         if [[ -t 0 ]]; then
-            infisical login "${domain_args[@]}" -i
+            if ! infisical login "${domain_args[@]}" -i; then
+                fail "Infisical login failed"
+                return 1
+            fi
         else
-            infisical login "${domain_args[@]}"
-        fi
-        if [[ $? -ne 0 ]]; then
-            fail "Infisical login failed"
-            return 1
+            if ! infisical login "${domain_args[@]}"; then
+                fail "Infisical login failed"
+                return 1
+            fi
         fi
     else
         ok "Already authenticated to Infisical"
@@ -60,8 +62,7 @@ secrets_get_infisical() {
     fi
 
     local exported
-    exported="$(infisical export --format=dotenv-eval --env "$INFISICAL_ENV" "${domain_args[@]}" 2>/dev/null)"
-    if [[ $? -ne 0 ]]; then
+    if ! exported="$(infisical export --format=dotenv-eval --env "$INFISICAL_ENV" "${domain_args[@]}" 2>/dev/null)"; then
         fail "Failed to export secrets from Infisical"
         return 1
     fi
