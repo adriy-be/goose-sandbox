@@ -1,0 +1,20 @@
+# Forcer le format LF (Linux) pour tous les fichiers texte.
+# Évite tout commit en CRLF (Windows) et normalise le dépôt.
+* text=auto eol=lf
+
+# Binaires : jamais de conversion de fins de ligne.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.webp binary
+*.svg binary
+*.ico binary
+*.woff binary
+*.woff2 binary
+*.ttf binary
+*.eot binary
+*.pdf binary
+*.zip binary
+*.gz binary
+*.tar binary
