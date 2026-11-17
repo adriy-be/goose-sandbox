@@ -5,7 +5,29 @@
 
 set -euo pipefail
 
-LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib"
+# Resolve links before locating modules. Relative targets are relative to the
+# link's physical directory, not the caller's working directory. Avoid readlink
+# -f (unavailable on some macOS versions).
+launcher_dir() {
+    local script="${BASH_SOURCE[0]}" dir target hops=0
+    while [[ -L "$script" ]]; do
+        if (( hops >= 40 )); then
+            echo "goose-sandbox: launcher symlink chain is too long or cyclic" >&2
+            return 1
+        fi
+        dir="$(cd -P -- "$(dirname -- "$script")" && pwd)" || return 1
+        target="$(readlink "$script")" || return 1
+        case "$target" in
+            /*) script="$target" ;;
+            *) script="$dir/$target" ;;
+        esac
+        hops=$((hops + 1))
+    done
+    cd -P -- "$(dirname -- "$script")" && pwd
+}
+
+LIB_DIR="$(launcher_dir)" || exit 1
+LIB_DIR="$LIB_DIR/lib"
 
 # Source all modules
 source "$LIB_DIR/config.sh"
