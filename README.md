@@ -67,6 +67,17 @@ the managed installation is updated independently by `goose-sandbox update`.
 > `docker build -t goose-agent .`. It pins Goose `v1.52.0` and uv `0.12.1` —
 > rebuilding never silently moves to a newer Goose release.
 
+Alternatively, put a symlink to the checkout's launcher on your `PATH`:
+
+```bash
+mkdir -p ~/.local/bin
+ln -s /absolute/path/to/goose-sandbox/goose-sandbox ~/.local/bin/goose-sandbox
+```
+
+Absolute, relative and chained launcher symlinks are supported. Keep the full
+checkout (including `lib/`) at the target; the current project directory is
+still used as the workspace.
+
 ### 2. Configure
 
 ```bash
